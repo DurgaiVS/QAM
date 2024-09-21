@@ -1,0 +1,37 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v3.2.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: sort-simple-yaml
+      - id: check-toml
+
+  - repo: local
+    hooks:
+      - id: isort
+        name: isort
+        entry: isort
+        language: python
+        types: [python]
+      - id: black
+        name: black
+        entry: black
+        language: python
+        types: [python]
+      # - id: clang-format
+      #   name: clang-format
+      #   entry: clang-format
+      #   language: python
+      #   args:
+      #     - -i
+          # - "inference/bolt/**/*hh"
+          # - "inference/bolt/main.cpp"
+      - id: pylint
+        name: pylint
+        entry: pylint
+        language: python
+        types: [python]

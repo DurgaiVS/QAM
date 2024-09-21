@@ -1,0 +1,3 @@
+name: qam
+dependencies:
+  - python==3.11

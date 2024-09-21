@@ -1,0 +1,115 @@
+defaults:
+    - _self_
+    - override hydra/job_logging: stdout
+
+experiment:
+  base_lr: 1e-4
+  min_lr: 1e-10
+  activation: null # input format: relu, gelu, ...
+  lr_refresh_epoch_count: 6
+  output_dir: ???
+  seed: 7
+  metric_to_track: val/loss
+  metric_mode: min
+  focal_gamma: 3
+  gamma: 0.5
+  save_top_k: 5
+  validation_step_count: 1000
+  factor: 0.5
+  patience: 3
+  threshold: 1e-4
+  scheduler_frequency: 1
+  scheduler_interval: epoch
+  resume_from_checkpoint: false
+
+trainer:
+  devices: -1
+  accelerator: gpu
+  strategy: ddp
+  accumulate_grad_batches: 1
+  default_root_dir: ${experiment.output_dir}
+  num_sanity_val_steps: 1
+  precision: 32
+  logger: true
+  min_epochs: 40
+  max_epochs: 100
+  profiler: simple
+  val_check_interval: ${experiment.validation_step_count}
+  limit_train_batches: null
+
+data:
+  num_workers: 8
+  batch_size: 32
+  buffer_factor: 4
+
+model:
+  encoder:
+    # _target_: torchaudio.models.Conformer
+    # 4x reduction for Conformer & 8x reduction for FastConformer
+    # input_dim is 512 for Conformer
+    # depthwise_conv_kernel_size is 31 for Conformer
+    # TODO: try ffn_dim also with 256
+    input_dim: 256
+    num_heads: 8
+    ffn_dim: 256
+    num_layers: 16
+    depthwise_conv_kernel_size: 9
+    dropout: 0.25
+    use_group_norm: false
+    convolution_first: false
+  classification_layer:
+    dropout: 0.3
+    activation: ${experiment.activation}
+
+pl_model:
+  f_beta: 0.95
+  metric: ${experiment.metric_to_track}
+  scheduler_frequency: ${experiment.scheduler_frequency}
+  scheduler_interval: ${experiment.scheduler_interval}
+
+pl_trainer_callbacks:
+  - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    dirpath: ${experiment.output_dir}/checkpoints
+    filename: "{epoch}-{${experiment.metric_to_track}:.2f}"
+    save_top_k: ${experiment.save_top_k}
+    save_last: true
+    verbose: true
+    monitor: ${experiment.metric_to_track}
+    mode: ${experiment.metric_mode}
+    every_n_train_steps: ${experiment.validation_step_count}
+  - _target_: pytorch_lightning.callbacks.LearningRateMonitor
+  - _target_: pytorch_lightning.callbacks.ModelSummary
+    max_depth: 2
+  - _target_: pytorch_lightning.callbacks.EarlyStopping
+    monitor: ${experiment.metric_to_track}
+    patience: ${experiment.patience}
+    verbose: true
+    mode: ${experiment.metric_mode}
+
+optimizer:
+  _target_: torch.optim.Adam
+  lr: ${experiment.base_lr}
+
+lr_schedulers:
+  - _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    T_max: ${experiment.lr_refresh_epoch_count}
+    eta_min: ${experiment.min_lr}
+  # - _target_: torch.optim.lr_scheduler.StepLR
+  #   step_size: ${experiment.patience}
+  #   gamma: ${experiment.gamma}
+  # - _target_: torch.optim.lr_scheduler.ExponentialLR
+  #   gamma: ${experiment.gamma}
+  - _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+    mode: min
+    min_lr: ${experiment.min_lr}
+    factor: ${experiment.factor}
+    patience: ${experiment.patience}
+    threshold: ${experiment.threshold}
+
+loss:
+  # _target_: torch.nn.CrossEntropyLoss
+  gamma: 2
+
+hydra:
+  run:
+    dir: ${experiment.output_dir}

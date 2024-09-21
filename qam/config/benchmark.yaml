@@ -1,0 +1,24 @@
+defaults:
+    - _self_
+    - override hydra/job_logging: stdout
+
+trainer:
+  devices: -1
+  accelerator: gpu
+  strategy: ddp
+  accumulate_grad_batches: 1
+  default_root_dir: ${experiment.base_dir}
+  num_sanity_val_steps: 1
+  precision: 32
+  logger: true
+  min_epochs: 40
+  max_epochs: 100
+  profiler: simple
+  val_check_interval: ${experiment.validation_step_count}
+  limit_train_batches: null
+
+
+data:
+  num_workers: 8
+  batch_size: 32
+  buffer_factor: 4

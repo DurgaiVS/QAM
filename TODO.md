@@ -1,0 +1,5 @@
+- Train three models, one on 15mins chart and another on 60mins chart and another on 5mins chart
+    - to capture both primary and short-term trend
+- For pretraining, use masked 4 class prediction conformer(fast-conformer) encoder model, (the 4 are more high, high, low, more low)
+- Use Kalman filter to preprocess (smooth) input samples. (check filterpy)
+- add tianshou to pyproject.toml
