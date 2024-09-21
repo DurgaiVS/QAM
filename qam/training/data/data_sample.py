@@ -18,18 +18,18 @@ class QAMDataSample:
         return self
 
     def to(self, *args, **kwargs) -> "QAMDataSample":
-        self.frame.to(*args, **kwargs)
-        self.label.to(*args, **kwargs)
+        self.frame = self.frame.to(*args, **kwargs)
+        self.label = self.label.to(*args, **kwargs)
         return self
 
     def cuda(self, *args, **kwargs) -> "QAMDataSample":
-        self.frame.cuda(*args, **kwargs)
-        self.label.cuda(*args, **kwargs)
+        self.frame = self.frame.cuda(*args, **kwargs)
+        self.label = self.label.cuda(*args, **kwargs)
         return self
 
     def cpu(self, *args, **kwargs) -> "QAMDataSample":
-        self.frame.cpu(*args, **kwargs)
-        self.label.cpu(*args, **kwargs)
+        self.frame = self.frame.cpu(*args, **kwargs)
+        self.label = self.label.cpu(*args, **kwargs)
         return self
 
     def __len__(self) -> int:
@@ -49,18 +49,18 @@ class QAMDataBatch:
         return self
 
     def to(self, device) -> "QAMDataBatch":
-        self.frames.to(device)
-        self.labels.to(device)
+        self.frames = self.frames.to(device)
+        self.labels = self.labels.to(device)
         return self
 
     def cuda(self, device) -> "QAMDataBatch":
-        self.frames.cuda(device)
-        self.labels.cuda(device)
+        self.frames = self.frames.cuda(device)
+        self.labels = self.labels.cuda(device)
         return self
 
     def cpu(self) -> "QAMDataBatch":
-        self.frames.cpu()
-        self.labels.cpu()
+        self.frames = self.frames.cpu()
+        self.labels = self.labels.cpu()
         return self
 
     def __len__(self) -> int:
