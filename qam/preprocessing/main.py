@@ -5,49 +5,72 @@ import typer
 
 from ..constants import DATA_DIR
 from ..utils import get_cfg
-from . import _downloader
+from . import alpaca_downloader, yf_downloader
 
 app = typer.Typer()
 
 
 @app.command()
-def from_yahoo(overrides: list[str] = []):
-
-    cfg = get_cfg("preprocess", overrides, "data_preparation")
-
+def from_yfinance(overrides: list[str] = []):
     """
     range: ["1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"]
     start: YYYY-MM-DD
     end: YYYY-MM-DD
     """
-    for split in cfg.split:
-        assert split.range or (
-            split.start and split.end
-        ), "Either start and end date or range should be provided"
 
-        split_dir = f"{DATA_DIR}/{split.name}"
-        os.makedirs(split_dir, exist_ok=True)
+    cfg = get_cfg("preprocess", overrides, "data_preparation")
 
-        threads: list[threading.Thread] = []
-        for symbol in cfg.symbols:
-            t = threading.Thread(
-                target=_downloader,
-                args=(
-                    symbol,
-                    split_dir,
-                    split.name,
-                    cfg.interval,
-                    split.range,
-                    split.start,
-                    split.end,
-                ),
-            )
-            t.start()
-            threads.append(t)
+    assert cfg.range or (
+        cfg.start and cfg.end
+    ), "Either start and end date or range should be provided"
+    os.makedirs(DATA_DIR, exist_ok=True)
 
-            if len(threads) == cfg.max_parallel_count:
-                threads[0].join()
-                threads.pop(0)
+    threads: list[threading.Thread] = []
+    for symbol in cfg.symbols:
+        t = threading.Thread(
+            target=yf_downloader,
+            args=(
+                symbol,
+                DATA_DIR,
+                cfg.interval,
+                cfg.range,
+                cfg.start,
+                cfg.end,
+            ),
+        )
+        t.start()
+        threads.append(t)
 
-        for t in threads:
-            t.join()
+        if len(threads) == cfg.max_parallel_count:
+            threads[0].join()
+            threads.pop(0)
+
+    for t in threads:
+        t.join()
+
+
+def from_alpaca(overrides: list[str] = []):
+    """
+    interval:
+        [1-59]Min / T
+        [1-23]Hour / H
+        1Day / D
+        1Week / W
+        [1,2,3,4,6,12]Month / M
+    start: YYYY-MM-DD[T00:00:00]
+    end: YYYY-MM-DD[T00:00:00]
+    """
+
+    cfg = get_cfg("preprocess", overrides, "data_preparation")
+
+    assert cfg.start and cfg.end, "Both start and end dates are required."
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    for sym in cfg.symbols:
+        alpaca_downloader(
+            sym,
+            DATA_DIR,
+            cfg.interval,
+            cfg.start,
+            cfg.end,
+        )

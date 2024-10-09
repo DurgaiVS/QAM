@@ -2,22 +2,18 @@ defaults:
     - _self_
     - override hydra/job_logging: stdout
 
-interval: 1h
+interval: ??? # 1h for yf / 1Min for alpaca
 max_parallel_count: 1
 
 symbols:
   - AAPL
+  # - NVDA
 
 split:
-  - name: train
-    range: ???
-    start: ???
-    end: ???
-  - name: test
-    range: ???
-    start: ???
-    end: ???
-  - name: val
-    range: ???
-    start: ???
-    end: ???
+  train: 0.7
+  val: 0.1
+  test: 0.2
+
+range: ???
+start: ???
+end: ???
