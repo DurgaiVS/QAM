@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "qam"
 version = "0.1.0"
-description = "An Reinforcement learning package to build trading bot"
+description = "A Reinforcement learning package to build and deploy trading bot"
 authors = ["durgaivelselvan.m <durgaivel0309@gmail.com>"]
 readme = "README.md"
 
@@ -10,23 +10,24 @@ qam = "qam.main:app"
 
 [tool.poetry.dependencies]
 python = "~3.11.0"
+filterpy = ">=1.4"
+hydra-core = ">=1.3"
+requests = "~2"
+torchmetrics = ">=1.2.0"
+tensorboard = ">=2.10"
+pytorch-lightning = "~2.3"
+typer = {extras = ["all"], version = "*"}
+torch = {url = "https://download.pytorch.org/whl/cu121/torch-2.3.1%2Bcu121-cp311-cp311-linux_x86_64.whl#sha256=925e34af0905062a48b4f82d0e6656341ad4d626834a6a8245ef4eaee5375c98"}
+infinibatch = "*"
+torchrl = "0.3.1"
+yfinance = "0.2.37"
+
+[tool.poetry.dev-dependencies]
 pylint = ">=3.0"
 pre-commit = ">=3.0"
 black = ">=24.0"
 isort = ">5.0"
 clang-format = ">=18.0"
-filterpy = ">=1.4"
-hydra-core = ">=1.3"
-torchmetrics = ">=1.2.0"
-tensorboard = ">=2.10"
-pytorch-lightning = "2.2.1"
-typer = {extras = ["all"], version = "*"}
-torch = "*"
-torchaudio = {url = "https://download.pytorch.org/whl/cu121/torchaudio-2.3.1%2Bcu121-cp311-cp311-linux_x86_64.whl#sha256=2d9136bf3c9b6ab96dc42f26f6cb836d45d115f5766e16aff52835c8e7cde565"}
-torchrl = "0.3.1"
-yfinance = "0.2.37"
-
-[tool.poetry.dev-dependencies]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

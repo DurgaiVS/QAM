@@ -1,0 +1,6 @@
+[submodule "qam/utils/deps/kalman"]
+	path = qam/utils/deps/kalman
+	url = https://github.com/mherb/kalman.git
+[submodule "qam/utils/deps/eigen"]
+	path = qam/utils/deps/eigen
+	url = https://gitlab.com/libeigen/eigen.git
