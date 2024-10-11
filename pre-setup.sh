@@ -5,7 +5,9 @@ cd "$(realpath "$(dirname "$0")")" || exit 0
 
 if [[ ! -n $(command -v conda) ]]; then
     wget https://repo.anaconda.com/miniconda/Miniconda3-py310_23.1.0-1-Linux-x86_64.sh -O ./miniconda.sh
-    bash ./miniconda.sh -b -u
+    chmod +x ./miniconda.sh
+    ./miniconda.sh -b -u
+    source ~/.bashrc
     conda init
     conda config --set report_errors false
 fi

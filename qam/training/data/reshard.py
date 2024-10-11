@@ -8,7 +8,10 @@ from typing import Dict, Generator, List, Optional, Tuple, Union
 
 import torch.multiprocessing as mp
 from tqdm import tqdm
-# from common_utils import SUBSET, DatasetMeta, ITNFileWriter, yield_groups_from_file
+
+from ...utils import QAMFileWriter
+
+# from common_utils import SUBSET, DatasetMeta, QAMFileWriter, yield_groups_from_file
 
 RESHARD_DIR_NAME = "resharded"
 
@@ -33,7 +36,9 @@ def _get_total_groups_from_sources_dist(
     total_groups = 0
     procs = []
 
-    def _update_total_groups(shards: List[str], max_words_per_group: int, data_q: "mp.Queue"):
+    def _update_total_groups(
+        shards: List[str], max_words_per_group: int, data_q: "mp.Queue"
+    ):
         groups = 0
         for shard in shards:
             for _ in yield_groups_from_file(shard, max_words_per_group):
@@ -79,7 +84,7 @@ def _writer(
     workers_done = 0
     _fc = 0
 
-    with ITNFileWriter(**kwargs) as itn_writer:
+    with QAMFileWriter(**kwargs) as itn_writer:
         while True:
             grp = data_q.get()
 
@@ -142,7 +147,7 @@ def _serial_resharding(
     pbar = tqdm(total=total_shards_req, desc=f"{group_type}-{id}", leave=False)
     _fc = 0
 
-    with ITNFileWriter(**kwargs) as itn_writer:
+    with QAMFileWriter(**kwargs) as itn_writer:
         for shard in shards:
             for grp in yield_groups_from_file(shard, max_words_per_group):
                 itn_writer.write(grp)
@@ -239,13 +244,17 @@ def _is_reshard_required(
 
     if (
         (meta["gpus_count"] % gpus_count == 0)
-        and all([True if ds in meta["dataset_names"] else False for ds in dataset_names])
+        and all(
+            [True if ds in meta["dataset_names"] else False for ds in dataset_names]
+        )
         and (meta["worker_per_gpu_count"] % worker_per_gpu_count == 0)
         and (meta["max_words_per_group"] == max_words_per_group)
     ):
         return False, meta
 
-    logging.info(f"Metadata mismatching, removing existing resharded directory `{reshard_dir}`")
+    logging.info(
+        f"Metadata mismatching, removing existing resharded directory `{reshard_dir}`"
+    )
     shutil.rmtree(reshard_dir)
     os.mkdir(reshard_dir)
     return True, meta
@@ -289,7 +298,9 @@ def _iterator_as_per_category(
     catg: str, ds: Dict[str, Dict[str, str]]
 ) -> Generator[Tuple[str, Dict[str, Dict[str, str]]], None, None]:
     if catg == "train":
-        reshard_dir = Path(next(iter(ds.values()))["base_dir"]).parent / RESHARD_DIR_NAME
+        reshard_dir = (
+            Path(next(iter(ds.values()))["base_dir"]).parent / RESHARD_DIR_NAME
+        )
         yield str(reshard_dir), ds
 
     elif catg == "eval":
