@@ -1,5 +1,6 @@
-import gzip, os
-from typing import Optional, Protocol, runtime_checkable, Union, Callable
+import gzip
+import os
+from typing import Callable, Optional, Protocol, Union, runtime_checkable
 
 import hydra
 from omegaconf import DictConfig
@@ -12,6 +13,7 @@ class QAMJSONableClass(Protocol):
     def to_str(self) -> str:
         pass
 
+
 class QAMFileWriter:
     def __init__(
         self,
@@ -23,7 +25,7 @@ class QAMFileWriter:
         count_per_file: Optional[int] = None,
         extra_one_rounder: Optional[int] = None,
     ):
-        if not (size_per_file or count_per_file):
+        if (not (size_per_file or count_per_file)) and (full_path is None):
             raise AttributeError(
                 "Specify either `size_per_file` in bytes or `count_per_file` when initialising"
             )
@@ -47,6 +49,8 @@ class QAMFileWriter:
             self._should_wrap = self._should_wrap_count
         elif size_per_file:
             self._should_wrap = self._should_wrap_size
+        else:
+            self._should_wrap = lambda: False
 
         self._open()
 
@@ -150,7 +154,9 @@ def find_available_filename(
 
     i = 0
     while True:
-        new_path = os.path.join(base_path, f"{filename_stem}-{'v' if add_v else ''}{i}.{extension}")
+        new_path = os.path.join(
+            base_path, f"{filename_stem}-{'v' if add_v else ''}{i}.{extension}"
+        )
         if not os.path.isfile(new_path):
             return new_path
 

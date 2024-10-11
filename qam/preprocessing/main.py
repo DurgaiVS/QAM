@@ -1,5 +1,6 @@
 import os
 import threading
+from typing import List
 
 import typer
 
@@ -49,7 +50,8 @@ def from_yfinance(overrides: list[str] = []):
         t.join()
 
 
-def from_alpaca(overrides: list[str] = []):
+@app.command()
+def from_alpaca(overrides: List[str]):
     """
     interval:
         [1-59]Min / T
@@ -67,9 +69,12 @@ def from_alpaca(overrides: list[str] = []):
     os.makedirs(DATA_DIR, exist_ok=True)
 
     for sym in cfg.symbols:
+        sym_path = os.path.join(DATA_DIR, sym)
+        os.makedirs(sym_path)
+
         alpaca_downloader(
             sym,
-            DATA_DIR,
+            sym_path,
             cfg.interval,
             cfg.start,
             cfg.end,

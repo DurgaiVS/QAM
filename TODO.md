@@ -3,3 +3,7 @@
 - For pretraining, use masked 4 class prediction conformer(fast-conformer) encoder model, (the 4 are more high, high, low, more low)
 - Use Kalman filter to preprocess (smooth) input samples. (check filterpy)
 - add tianshou to pyproject.toml
+
+- Add asyncio for alpaca data collection.
+- Include preprocessing scripts for alpaca raw data format.
+- Since the Data Format is O, C, H, L, V, Nt, VAvg; we have to have a decision boundary from our model, like, if the Model predicts VH for a stock, we buy immediately with more quantity; like, for VL, if we were holding any then we try to sell, if not then we do nothing; NOTE: this should be more concrete, as this decides the profit/loss. OR, we can use RL to fine tune our pretrained model on stock trend prediction, like, VH, H, L, VL; and try to predict even the buy/sell action, its volume etc...
