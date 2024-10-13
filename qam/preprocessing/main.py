@@ -6,13 +6,14 @@ import typer
 
 from ..constants import DATA_DIR
 from ..utils import get_cfg
-from . import alpaca_downloader, yf_downloader
+from .from_alpaca import AlpacaSource
+from .from_yfinance import yf_downloader
 
 app = typer.Typer()
 
 
 @app.command()
-def from_yfinance(overrides: list[str] = []):
+def from_yfinance(overrides: List[str] = []):
     """
     range: ["1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"]
     start: YYYY-MM-DD
@@ -26,7 +27,7 @@ def from_yfinance(overrides: list[str] = []):
     ), "Either start and end date or range should be provided"
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    threads: list[threading.Thread] = []
+    threads: List[threading.Thread] = []
     for symbol in cfg.symbols:
         t = threading.Thread(
             target=yf_downloader,
@@ -66,16 +67,5 @@ def from_alpaca(overrides: List[str]):
     cfg = get_cfg("preprocess", overrides, "data_preparation")
 
     assert cfg.start and cfg.end, "Both start and end dates are required."
-    os.makedirs(DATA_DIR, exist_ok=True)
-
-    for sym in cfg.symbols:
-        sym_path = os.path.join(DATA_DIR, sym)
-        os.makedirs(sym_path)
-
-        alpaca_downloader(
-            sym,
-            sym_path,
-            cfg.interval,
-            cfg.start,
-            cfg.end,
-        )
+    source = AlpacaSource(**cfg)
+    source.process_data()

@@ -1,11 +1,11 @@
 import gzip
 import random
 from pathlib import Path
-from typing import Generator
+from typing import Generator, List
 
-from torch.utils.data import IterableDataset
 from infinibatch.datasets import chunked_dataset_iterator
 from infinibatch.iterators import BucketedReadaheadBatchIterator
+from torch.utils.data import IterableDataset
 
 from ...constants import (
     DATA_DIR,
@@ -14,12 +14,19 @@ from ...constants import (
     SUBSAMPLING_FACTOR,
     WINDOW_SIZE,
 )
-from .data_sample import QAMDataSample
+from ...utils import QAMDataSample
 from .utils import find_label
 
 
 class NCEDataset(IterableDataset):
-    def __init__(self, split_name: str, batch_size: str, buffer_factor: int, shuffle: bool = False, seed: int = 7):
+    def __init__(
+        self,
+        split_name: str,
+        batch_size: str,
+        buffer_factor: int,
+        shuffle: bool = False,
+        seed: int = 7,
+    ):
         self.base_dir = Path(f"{DATA_DIR}/{split_name}").resolve()
         self.batch_size = batch_size
         self.buffer_factor = buffer_factor
@@ -32,8 +39,8 @@ class NCEDataset(IterableDataset):
         self.worker_id = 0
 
     def read_chunk_fn(self, path: Path) -> Generator[QAMDataSample, None, None]:
-        samples: list[list] = []
-        labels: list[int] = []
+        samples: List[List] = []
+        labels: List[int] = []
         sample_length = WINDOW_SIZE * SUBSAMPLING_FACTOR
         stride_length = STRIDE_LENGTH * SUBSAMPLING_FACTOR
 
@@ -62,7 +69,9 @@ class NCEDataset(IterableDataset):
                     samples = samples[stride_length:]
                     labels = labels[STRIDE_LENGTH:]
 
-    def shuffled_yielder(self, chunk_refs: list[Path]) -> Generator[QAMDataSample, None, None]:
+    def shuffled_yielder(
+        self, chunk_refs: List[Path]
+    ) -> Generator[QAMDataSample, None, None]:
         ds_i = chunked_dataset_iterator(
             chunk_refs,
             self.read_chunk_fn,
@@ -83,7 +92,9 @@ class NCEDataset(IterableDataset):
         for batch in ds_it:
             yield from batch
 
-    def serial_yielder(self, chunk_refs: list[Path]) -> Generator[QAMDataSample, None, None]:
+    def serial_yielder(
+        self, chunk_refs: List[Path]
+    ) -> Generator[QAMDataSample, None, None]:
         for chunk_ref in chunk_refs:
             yield from self.read_chunk_fn(chunk_ref)
 

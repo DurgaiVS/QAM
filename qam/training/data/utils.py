@@ -1,11 +1,13 @@
+from typing import List
+
 import torch
 import torch.distributed as dist
 
 from ...constants import HIGH_ID, LABEL_THRESHOLD_VALUE, SUBSAMPLING_FACTOR
-from .data_sample import Classifier, QAMDataBatch, QAMDataSample
+from ...utils import Classifier, QAMDataBatch, QAMDataSample, QAMTimePoint
 
 
-def find_label(samples: list[list]) -> int:
+def find_label(samples: List[List]) -> int:
     max_val_future, max_val_present = float("-inf"), float("-inf")
 
     for sample in samples[SUBSAMPLING_FACTOR:]:
@@ -31,7 +33,7 @@ def find_label(samples: list[list]) -> int:
         return Classifier.VERY_LOW.value
 
 
-def collate_fn(data_batch: list[list[QAMDataSample]]) -> QAMDataBatch:
+def collate_fn(data_batch: List[List[QAMDataSample]]) -> QAMDataBatch:
     collated_batch = QAMDataBatch()
 
     for batch in data_batch:
@@ -62,4 +64,3 @@ def worker_init_fn(worker_id):
     # `global_worker_id`: a uniq ID for a worker in global setting
     global_worker_id = worker_id * dataset.dist_world_size + dataset.dist_rank
     dataset.worker_id = global_worker_id
-

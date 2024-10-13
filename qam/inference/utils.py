@@ -2,7 +2,7 @@ import json
 import os
 import tarfile
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import torch
 from omegaconf import DictConfig, OmegaConf
@@ -23,7 +23,7 @@ class QAMOverallDataMetric:
     # when inheritting from this class, if you choose
     # some attributes of your class to not to get included
     # when computing avg, then you can add those here...
-    _exceptions_list: Optional[list[str]] = None
+    _exceptions_list: Optional[List[str]] = None
 
     def __add__(self, other: "QAMOverallDataMetric") -> "QAMOverallDataMetric":
         for k in vars(self).keys():
@@ -47,7 +47,7 @@ class QAMOverallDataMetric:
         return self
 
     @classmethod
-    def compute(cls, samples: list["QAMOverallDataMetric"]) -> "QAMOverallDataMetric":
+    def compute(cls, samples: List["QAMOverallDataMetric"]) -> "QAMOverallDataMetric":
         v = vars(samples[0])
         if samples[0]._exceptions_list:
             for k in samples[0]._exceptions_list:
@@ -59,7 +59,6 @@ class QAMOverallDataMetric:
 
         return self / len(samples)
 
-    
     @classmethod
     def read_from(cls, filepath: str):
         with open(filepath, "r") as f:
@@ -75,7 +74,7 @@ class QAMOverallDataMetric:
 
     def to_str(self) -> str:
         return json.dumps(vars(self))
-    
+
     @classmethod
     def from_str(cls, data: str):
         return cls(**json.loads(data))
@@ -95,11 +94,13 @@ class QAMInferenceResultsWriter:
     def __init__(
         self,
         output_dir: str,
-        categories: list[str],
-        metrics_name: list[str],
+        categories: List[str],
+        metrics_name: List[str],
     ) -> None:
         self.output_dir = output_dir
-        self.overall_summary_file = os.path.join(self.output_dir, f"overall_summary.json")
+        self.overall_summary_file = os.path.join(
+            self.output_dir, f"overall_summary.json"
+        )
         self.dataset_wise_sample_stats = defaultdict(self.default_fn, True)
         self.categories = categories
         self.metrics_name = metrics_name
@@ -109,7 +110,9 @@ class QAMInferenceResultsWriter:
         os.makedirs(ds_path, exist_ok=True)
         return {
             "sample_wise_file": QAMFileWriter(
-                full_path=find_available_filename(ds_path, "sample_stats", "jsonl.gz", False),
+                full_path=find_available_filename(
+                    ds_path, "sample_stats", "jsonl.gz", False
+                ),
                 size_per_file=float("inf"),
             ),
             "overall_summary": os.path.join(ds_path, f"overall_summary.json"),
@@ -133,7 +136,9 @@ class QAMInferenceResultsWriter:
             )
         )
 
-    def write_overall_stats(self, dataset_wise_score: dict[str, dict[str, MulticlassStatScores]]):
+    def write_overall_stats(
+        self, dataset_wise_score: dict[str, dict[str, MulticlassStatScores]]
+    ):
 
         overall = defaultdict(lambda: [])
         gl = globals()
@@ -150,7 +155,9 @@ class QAMInferenceResultsWriter:
 
                     cls = gl.get(f"{catg.capitalize()}Label")
                     for id, val in enumerate(value):
-                        tmp[f"{catg}_{cls(id).name.lower()}_{metric}"] = val.cpu().item()
+                        tmp[f"{catg}_{cls(id).name.lower()}_{metric}"] = (
+                            val.cpu().item()
+                        )
                         overall[f"{catg}_{cls(id).name.lower()}_{metric}"].append(val)
 
                     tmp[f"{catg}_{metric}"] = v.cpu().item()
@@ -176,7 +183,7 @@ class QAMInferenceResultsWriter:
 
 def wrap_up_function(
     output_dir: str,
-    dataset_names: list[str],
+    dataset_names: List[str],
     model_hparams: DictConfig,
     predictor_hparams: DictConfig,
 ):
@@ -187,8 +194,14 @@ def wrap_up_function(
     with tarfile.open(os.path.join(output_dir, "results.tar.gz"), "w:gz") as tar:
         for ds_name in dataset_names:
             tar.add(os.path.join(output_dir, ds_name), arcname=ds_name)
-        tar.add(os.path.join(output_dir, "overall_summary.json"), arcname="overall_summary.json")
-        tar.add(os.path.join(output_dir, "overall_hparams.yaml"), arcname="overall_hparams.yaml")
+        tar.add(
+            os.path.join(output_dir, "overall_summary.json"),
+            arcname="overall_summary.json",
+        )
+        tar.add(
+            os.path.join(output_dir, "overall_hparams.yaml"),
+            arcname="overall_hparams.yaml",
+        )
 
     # for ds_name in dataset_names:
     #     shutil.rmtree(os.path.join(output_dir, ds_name), ignore_errors=True)

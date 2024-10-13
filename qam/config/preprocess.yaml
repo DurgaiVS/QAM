@@ -3,7 +3,7 @@ defaults:
     - override hydra/job_logging: stdout
 
 interval: ??? # 1h for yf / 1Min for alpaca
-max_parallel_count: 1
+worker_count: 1
 
 symbols:
   - AAPL

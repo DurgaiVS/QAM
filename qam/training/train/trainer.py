@@ -1,9 +1,11 @@
+from typing import List
+
 import pytorch_lightning as pl
 import torch
 from torchaudio.models import Conformer
 from torchmetrics import FBetaScore, Precision, Recall
 
-from ..data.data_sample import Classifier, QAMDataBatch
+from ...utils import Classifier, QAMDataBatch
 
 
 class QAMTrainer(pl.LightningModule):
@@ -12,7 +14,7 @@ class QAMTrainer(pl.LightningModule):
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         loss_fn: torch.nn.modules.loss._Loss,
-        lr_schs: list[torch.optim.lr_scheduler._LRScheduler],
+        lr_schs: List[torch.optim.lr_scheduler._LRScheduler],
         metric: str,
         f_beta: float = 1.0,
         scheduler_interval: int = 1,

@@ -1,3 +1,5 @@
+from typing import List
+
 import hydra
 import pytorch_lightning as pl
 import torch
@@ -13,7 +15,7 @@ app = typer.Typer()
 
 
 @app.command()
-def pretrain(overrides: list[str] = []):
+def pretrain(overrides: List[str] = []):
 
     cfg = get_cfg("train", overrides, "training")
     pl.seed_everything(cfg.experiment.seed)
