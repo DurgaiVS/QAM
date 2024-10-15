@@ -28,8 +28,8 @@ repos:
       #   language: python
       #   args:
       #     - -i
-          # - "inference/bolt/**/*hh"
-          # - "inference/bolt/main.cpp"
+      #     - "/**/*hh"
+      #     - "**/*.cpp"
       - id: pylint
         name: pylint
         entry: pylint
