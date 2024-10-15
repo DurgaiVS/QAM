@@ -1,13 +1,16 @@
+import asyncio
 import gzip
 import json
 import os
 import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from pathlib import Path
 from typing import (
     Any,
     Callable,
     Dict,
+    Generator,
     List,
     Optional,
     Protocol,
@@ -51,10 +54,22 @@ class QAMTimePoint:
     def to_dict(self):
         return vars(self)
 
+    @classmethod
+    def from_str(cls, s: str) -> "QAMTimePoint":
+        return cls(**json.loads(s))
+
+    @classmethod
+    def yield_from_file(
+        cls, file_path: Union[str, Path]
+    ) -> Generator["QAMTimePoint", None, None]:
+        with gzip.open(file_path, "rt") as f:
+            for line in f:
+                yield cls.from_str(line)
+
 
 @dataclass
 class QAMDataSample:
-    dataset_name: str
+    symbol: str
     frame: Union[List[List], torch.Tensor]
     label: Union[List[List], torch.Tensor]
 
@@ -85,7 +100,7 @@ class QAMDataSample:
 
 @dataclass
 class QAMDataBatch:
-    dataset_names: List[str] = field(default_factory=list)
+    symbols: List[str] = field(default_factory=list)
     frames: Union[torch.Tensor, List[torch.Tensor]] = field(default_factory=list)
     labels: Union[torch.Tensor, List[torch.Tensor]] = field(default_factory=list)
 
@@ -111,7 +126,7 @@ class QAMDataBatch:
         return self
 
     def __len__(self) -> int:
-        return len(self.frames)
+        return len(self.symbols)
 
     def extend(self, samples: List[QAMDataSample]) -> "QAMDataBatch":
         for sample in samples:
@@ -121,7 +136,7 @@ class QAMDataBatch:
 
     def __getitem__(self, index: int) -> QAMDataSample:
         return QAMDataSample(
-            self.dataset_names[index],
+            self.symbols[index],
             self.frames[index],
             self.labels[index],
         )
@@ -131,7 +146,7 @@ class QAMDataBatch:
         self = cls()
 
         for sample in samples:
-            self.dataset_names.append(sample.dataset_name)
+            self.symbols.append(sample.symbol)
             self.frames.append(sample.frame)
             self.labels.append(sample.label)
 
@@ -328,13 +343,20 @@ class WorkerPool:
             self.backend = self.backend_thread
         elif backend == "process":
             self.backend = self.backend_process
+        self._w = []
 
     def start(self):
         self.backend()
 
+    def join(self):
+        for w in self._w:
+            w.join()
+
+        self._w = []
+
     def map_list_iterable(self):
         for arg in self.mappable:
-            yield arg, {}
+            yield [arg], {}
 
     def map_dict_iterable(self):
         k_s = list(self.mappable.keys())
@@ -347,18 +369,21 @@ class WorkerPool:
 
             yield [], kwarg
 
-    def wait_and_pop(self, workers: List[Union[threading.Thread, mp.Process]]):
+    def wait_and_pop(self):
         while True:
-            for i, w in enumerate(workers):
+            for i, w in enumerate(self._w):
                 w.join(0.5)
                 if w.is_alive():
                     continue
 
-                workers.pop(i)
+                self._w.pop(i)
                 return
 
+    def backend_asyncio(self):
+        for arg, kwarg in self.mapper():
+            asyncio.run(self.fn(*(self.args + arg), **(self.kwargs | kwarg)))
+
     def backend_thread(self):
-        threads: List[threading.Thread] = []
         w_count = 0
 
         for arg, kwarg in self.mapper():
@@ -366,28 +391,20 @@ class WorkerPool:
                 target=self.fn, args=(self.args + arg), kwargs=(self.kwargs | kwarg)
             )
             t.start()
-            threads.append(t)
+            self._w.append(t)
 
-            if len(threads) == self.worker_count:
-                self.wait_and_pop(threads)
-
-        for t in threads:
-            t.join()
+            if len(self._w) > self.worker_count:
+                self.wait_and_pop()
 
     def backend_process(self):
         ctx = mp.get_context(self.start_method)
-        procs: List[mp.Process] = []
-        w_count = 0
 
         for arg, kwarg in self.mapper():
             p = ctx.Process(
                 target=self.fn, args=(self.args + arg), kwargs=(self.kwargs | kwarg)
             )
             p.start()
-            procs.append(p)
+            self._w.append(p)
 
-            if len(procs) == self.worker_count:
-                self.wait_and_pop(procs)
-
-        for p in procs:
-            p.join()
+            if len(self._w) > self.worker_count:
+                self.wait_and_pop()

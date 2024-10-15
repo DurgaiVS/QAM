@@ -7,7 +7,7 @@ worker_count: 1
 
 symbols:
   - AAPL
-  # - NVDA
+  - NVDA
 
 split:
   train: 0.7

@@ -1,7 +1,7 @@
 import torch
 
 from ..constants import PAD_ID
-from ..training.data.data_sample import Classifier
+from ..utils import Classifier
 
 
 class FocalLoss(torch.nn.Module):

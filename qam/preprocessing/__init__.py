@@ -10,7 +10,7 @@ class Source:
         interval: str,
         start: str,
         end: str,
-        range: str,
+        range: Optional[str],
         split: Dict[str, float],
         worker_count: Optional[int] = None,
     ):

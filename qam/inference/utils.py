@@ -126,10 +126,10 @@ class QAMInferenceResultsWriter:
         score_dict: dict[str, torch.Tensor],
         transformed_text: Optional[str] = None,
     ):
-        self.dataset_wise_sample_stats[sample.dataset_name]["sample_wise_file"].write(
+        self.dataset_wise_sample_stats[sample.symbol]["sample_wise_file"].write(
             QAMSampleDataMetric(
                 ground_truth=sample.ground_truth,
-                dataset_name=sample.dataset_name,
+                dataset_name=sample.symbol,
                 prediction=transformed_text
                 or generate_prediction(sample, punct_preds, capit_preds),
                 **score_dict,

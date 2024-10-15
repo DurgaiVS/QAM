@@ -4,7 +4,7 @@ import torch
 from omegaconf import DictConfig
 
 from ..constants import SAMPLE_DIM, SUBSAMPLING_FACTOR, WINDOW_SIZE
-from ..training.data.data_sample import Classifier
+from ..utils import Classifier
 from .conformer import ConformerLayer
 from .position_encoder import PositionalEncoding
 

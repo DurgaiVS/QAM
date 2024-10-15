@@ -2,7 +2,7 @@ from typing import Union
 
 import torch
 
-from ..training.data.data_sample import QAMDataBatch
+from ..utils import QAMDataBatch
 from .transf_encoder import TransformerEncoderModule
 
 
