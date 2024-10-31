@@ -3,34 +3,8 @@ from typing import List
 import torch
 import torch.distributed as dist
 
-from ...constants import HIGH_ID, LABEL_THRESHOLD_VALUE, SUBSAMPLING_FACTOR
+from ...constants import LABEL_THRESHOLD_VALUE, SUBSAMPLING_FACTOR
 from ...utils import Classifier, QAMDataBatch, QAMDataSample, QAMTimePoint
-
-
-def find_label(samples: List[List]) -> int:
-    max_val_future, max_val_present = float("-inf"), float("-inf")
-
-    for sample in samples[SUBSAMPLING_FACTOR:]:
-        if sample[HIGH_ID] > max_val_future:
-            max_val_future = sample[HIGH_ID]
-
-    for sample in samples[:SUBSAMPLING_FACTOR]:
-        if sample[HIGH_ID] > max_val_future:
-            max_val_present = sample[HIGH_ID]
-
-    graph_diff = max_val_future - max_val_present
-
-    if graph_diff > LABEL_THRESHOLD_VALUE:
-        return Classifier.VERY_HIGH.value
-
-    if graph_diff > 0 and graph_diff < LABEL_THRESHOLD_VALUE:
-        return Classifier.HIGH.value
-
-    if graph_diff < 0 and graph_diff > -LABEL_THRESHOLD_VALUE:
-        return Classifier.LOW.value
-
-    if graph_diff < -LABEL_THRESHOLD_VALUE:
-        return Classifier.VERY_LOW.value
 
 
 def collate_fn(data_batch: List[List[QAMDataSample]]) -> QAMDataBatch:

@@ -1,12 +1,21 @@
 import os
 
-DATA_DIR: str = f"{os.environ['QAM_ROOT']}/dataset"
-WINDOW_SIZE: int = 128
-SAMPLE_DIM: int = 4
-SUBSAMPLING_FACTOR: int = 8
-HIGH_ID: int = 1
 PAD_ID: int = -100
+
+# for a 512 timestep data, the model will guess the trend direction within the next 512 timestep...
+TREND_UPDATE_SEQ_LEN: int = 512
+
+MAX_SEQ_LEN: int = 512
+STRIDE_LENGTH: int = 128
+SUBSAMPLING_FACTOR: int = 8
+
+# when a trend is more than or less than this threshold, then it is tagged with `very ...`
 LABEL_THRESHOLD_VALUE: float = 5.0
+
+DATA_DIR: str = f"{os.environ['QAM_ROOT']}/dataset"
 CONFIG_PATH: str = "./config"
-SAMPLE_COUNT_PER_LABEL: int = 32 * SUBSAMPLING_FACTOR
-STRIDE_LENGTH: int = WINDOW_SIZE / 4
+RESHARD_DIR_NAME = "resharded"
+SUBSET = {
+    "train": ["short", "long"],
+    "eval": ["dev", "test"],
+}

@@ -8,8 +8,8 @@ import typer
 from ..modules.encoder import ConfEncoderWithClassificationHeads
 from ..modules.focal_loss import FocalLoss
 from ..utils import get_cfg
-from .data.data_module import NCEDataModule
-from .train.trainer import QAMTrainer
+from .data import NCEDataModule, reshard_if_needed
+from .train import QAMTrainer
 
 app = typer.Typer()
 
@@ -19,6 +19,8 @@ def pretrain(overrides: List[str] = []):
 
     cfg = get_cfg("train", overrides, "training")
     pl.seed_everything(cfg.experiment.seed)
+
+    meta = reshard_if_needed()
 
     model = ConfEncoderWithClassificationHeads(**cfg.model)
 

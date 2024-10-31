@@ -9,11 +9,8 @@ from typing import Dict, Generator, List, Optional, Tuple, Union
 import torch.multiprocessing as mp
 from tqdm import tqdm
 
-from ...utils import QAMFileWriter
-
-# from common_utils import SUBSET, DatasetMeta, QAMFileWriter, yield_groups_from_file
-
-RESHARD_DIR_NAME = "resharded"
+from ...constants import RESHARD_DIR_NAME, SUBSET
+from ...utils import DatasetMeta, QAMFileWriter, yield_sample_from_file
 
 
 def _get_total_groups_from_sources(
@@ -22,7 +19,7 @@ def _get_total_groups_from_sources(
     total_groups = 0
 
     for shard in shards:
-        for _ in yield_groups_from_file(shard, max_words_per_group):
+        for _ in yield_sample_from_file(shard):
             total_groups += 1
 
     return total_groups
@@ -41,7 +38,7 @@ def _get_total_groups_from_sources_dist(
     ):
         groups = 0
         for shard in shards:
-            for _ in yield_groups_from_file(shard, max_words_per_group):
+            for _ in yield_sample_from_file(shard):
                 groups += 1
 
         data_q.put(groups)
@@ -65,8 +62,8 @@ def _get_total_groups_from_sources_dist(
 def _reader(shards: List[str], max_words_per_group: int, data_q: "mp.Queue"):
 
     for shard in shards:
-        for grp in yield_groups_from_file(shard, max_words_per_group):
-            data_q.put(grp)
+        for sample in yield_sample_from_file(shard):
+            data_q.put(sample)
 
     data_q.put(None)
 
@@ -149,8 +146,8 @@ def _serial_resharding(
 
     with QAMFileWriter(**kwargs) as itn_writer:
         for shard in shards:
-            for grp in yield_groups_from_file(shard, max_words_per_group):
-                itn_writer.write(grp)
+            for sample in yield_sample_from_file(shard):
+                itn_writer.write(sample)
 
                 if itn_writer._files_counter != _fc:
                     pbar.update()
@@ -158,6 +155,7 @@ def _serial_resharding(
 
                     if _fc == total_shards_req:
                         break
+
             if _fc == total_shards_req:
                 break
 

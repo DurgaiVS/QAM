@@ -3,30 +3,35 @@ defaults:
     - override hydra/job_logging: stdout
 
 experiment:
+  output_dir: ???
+  grad_acc: ???
+
   base_lr: 1e-4
   min_lr: 1e-10
-  activation: null # input format: relu, gelu, ...
-  lr_refresh_epoch_count: 6
-  output_dir: ???
-  seed: 7
+
+  validation_step_count: 1000
   metric_to_track: val/loss
   metric_mode: min
   focal_gamma: 3
+  activation: null # input format: relu, gelu, ...
+
+  seed: 7
   gamma: 0.5
   save_top_k: 5
-  validation_step_count: 1000
   factor: 0.5
   patience: 3
   threshold: 1e-4
   scheduler_frequency: 1
   scheduler_interval: epoch
+
+  lr_refresh_epoch_count: 6
   resume_from_checkpoint: false
 
 trainer:
   devices: -1
   accelerator: gpu
   strategy: ddp
-  accumulate_grad_batches: 1
+  accumulate_grad_batches: ${experiment.grad_acc}
   default_root_dir: ${experiment.output_dir}
   num_sanity_val_steps: 1
   precision: 32
@@ -35,7 +40,7 @@ trainer:
   max_epochs: 100
   profiler: simple
   val_check_interval: ${experiment.validation_step_count}
-  limit_train_batches: null
+  # limit_train_batches: null
 
 data:
   num_workers: 8
@@ -109,6 +114,9 @@ lr_schedulers:
 loss:
   # _target_: torch.nn.CrossEntropyLoss
   gamma: 2
+  grad_acc: ${experiment.grad_acc}
+  # alpha: [1,1,1,1] # labelset size...
+
 
 hydra:
   run:

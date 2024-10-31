@@ -1,8 +1,11 @@
 import asyncio
 import gzip
 import json
+import logging
+import multiprocessing as mp
 import os
 import threading
+from collections import namedtuple
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
@@ -20,10 +23,30 @@ from typing import (
 
 import hydra
 import torch
-import torch.multiprocessing as mp
 from omegaconf import DictConfig
 
-from .constants import CONFIG_PATH
+from .constants import (
+    CONFIG_PATH,
+    LABEL_THRESHOLD_VALUE,
+    MAX_SEQ_LEN,
+    STRIDE_LENGTH,
+    TREND_UPDATE_SEQ_LEN,
+)
+
+QAMTimePointTuple = namedtuple(
+    "QAMTimePointTuple",
+    [
+        "symbol_hex",
+        "open",
+        "close",
+        "high",
+        "low",
+        "n_trades",
+        "volume",
+        "volume_wa",
+        "time_hex",
+    ],
+)
 
 
 @runtime_checkable
@@ -33,8 +56,17 @@ class QAMJSONableClass(Protocol):
     def to_dict(self) -> Dict: ...
 
 
+class Classifier(Enum):
+    VERY_HIGH: int = 0
+    HIGH: int = auto()
+    LOW: int = auto()
+    VERY_LOW: int = auto()
+    NO_IMP: int = auto()
+
+
 @dataclass
 class QAMTimePoint:
+    symbol: str
     open: float
     close: float
     high: float
@@ -43,7 +75,24 @@ class QAMTimePoint:
     volume: int
     volume_wa: float
     time: str
-    symbol: str
+
+    def __lt__(self, other: "QAMTimePoint") -> bool:
+        return self.low < other.low
+
+    def __le__(self, other: "QAMTimePoint") -> bool:
+        return self.low <= other.low
+
+    def __gt__(self, other: "QAMTimePoint") -> bool:
+        return self.low > other.low
+
+    def __ge__(self, other: "QAMTimePoint") -> bool:
+        return self.low >= other.low
+
+    def __eq__(self, other: "QAMTimePoint") -> bool:
+        return (self.symbol == other.symbol) and (self.time == other.time)
+
+    def __ne__(self, other: "QAMTimePoint") -> bool:
+        return (self.symbol != other.symbol) or (self.time != other.time)
 
     def __repr__(self):
         return json.dumps(vars(self))
@@ -53,6 +102,19 @@ class QAMTimePoint:
 
     def to_dict(self):
         return vars(self)
+
+    def as_timepoint_tuple(self) -> QAMTimePointTuple:
+        return QAMTimePointTuple(
+            hash(self.symbol),
+            self.open,
+            self.close,
+            self.high,
+            self.low,
+            self.n_trades,
+            self.volume,
+            self.volume_wa,
+            hash(self.time),
+        )
 
     @classmethod
     def from_str(cls, s: str) -> "QAMTimePoint":
@@ -67,15 +129,28 @@ class QAMTimePoint:
                 yield cls.from_str(line)
 
 
+# TODO: Finish this
+@dataclass
+class DatasetMeta:
+
+    def update_stats_for_group(self, group_type: str, samples_count: int):
+        pass
+
+    def compute_max_safe_batches_count(
+        self, batch_size: int, gpus_count: int
+    ) -> "DatasetMeta":
+        pass
+
+
 @dataclass
 class QAMDataSample:
     symbol: str
-    frame: Union[List[List], torch.Tensor]
-    label: Union[List[List], torch.Tensor]
+    frame: Union[List[QAMTimePointTuple], torch.Tensor]
+    label: Union[int, torch.Tensor]
 
     def tensorize(self) -> "QAMDataSample":
         if not isinstance(self.frame, torch.Tensor):
-            self.frame = torch.stack(self.frame).to(torch.float32)
+            self.frame = torch.tensor(self.frame).to(torch.float32)
             self.label = torch.tensor(self.label).to(torch.long)
         return self
 
@@ -96,6 +171,82 @@ class QAMDataSample:
 
     def __len__(self) -> int:
         return len(self.frame)
+
+    @classmethod
+    def from_list(
+        cls, samples: List[QAMTimePoint], label: Classifier
+    ) -> "QAMDataSample":
+        qam_data_tuples = []
+        symbol = samples[0].symbol
+
+        for sample in samples:
+            assert (
+                symbol == sample.symbol
+            ), f"Unexpected symbol {sample.symbol} encountered, expected {symbol}. Cannot create a sample out of different sample's timepoint."
+
+            qam_data_tuples.append(sample.as_timepoint_tuple())
+
+        return cls(symbol, qam_data_tuples, label.value)
+
+    @classmethod
+    def get_label(
+        entry_point: QAMTimePoint, trend_samples: List[QAMTimePoint]
+    ) -> Classifier:
+        max_val, min_val = entry_point, entry_point
+
+        for trend_sample in trend_samples:
+            if trend_sample > max_val:
+                max_val = trend_sample
+            if trend_sample < min_val:
+                min_val = trend_sample
+
+        if max_val != entry_point:
+            graph_diff = max_val.low - entry_point.low
+        elif min_val != entry_point:
+            graph_diff = min_val.low - entry_point.low
+        else:
+            logging.warning(
+                "Encountered a case where the trend is neither moving up nor moving down."
+            )
+            return Classifier.NO_IMP
+
+        if graph_diff > LABEL_THRESHOLD_VALUE:
+            return Classifier.VERY_HIGH
+
+        if graph_diff > 0 and graph_diff < LABEL_THRESHOLD_VALUE:
+            return Classifier.HIGH
+
+        if graph_diff < 0 and graph_diff > -LABEL_THRESHOLD_VALUE:
+            return Classifier.LOW
+
+        if graph_diff < -LABEL_THRESHOLD_VALUE:
+            return Classifier.VERY_LOW
+
+    @classmethod
+    def init_sample(
+        cls, data_samples: List[QAMTimePoint], trend_samples: List[QAMTimePoint]
+    ) -> "QAMDataSample":
+        label = cls.get_label(data_samples[-1], trend_samples)
+        return cls.from_list(trend_samples, label)
+
+
+def yield_sample_from_file(self, path: Path) -> Generator[QAMDataSample, None, None]:
+    samples: List[QAMTimePoint] = []
+    with gzip.open(path, "rt") as f:
+        for line in f:
+            sample = QAMTimePoint.from_str(line)
+            samples.append(sample)
+
+            if len(samples) < (MAX_SEQ_LEN + TREND_UPDATE_SEQ_LEN):
+                continue
+
+            yield QAMDataSample.init_sample(
+                samples[:MAX_SEQ_LEN], samples[MAX_SEQ_LEN:]
+            )
+            samples = samples[STRIDE_LENGTH:]
+
+    if len(samples) > MAX_SEQ_LEN:
+        yield QAMDataSample.init_sample(samples[:MAX_SEQ_LEN], samples[MAX_SEQ_LEN:])
 
 
 @dataclass
@@ -151,13 +302,6 @@ class QAMDataBatch:
             self.labels.append(sample.label)
 
         return self.tensorize()
-
-
-class Classifier(Enum):
-    VERY_HIGH: int = 0
-    HIGH: int = auto()
-    LOW: int = auto()
-    VERY_LOW: int = auto()
 
 
 class QAMFileWriter:
