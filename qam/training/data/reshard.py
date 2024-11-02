@@ -13,9 +13,7 @@ from ...constants import RESHARD_DIR_NAME, SUBSET
 from ...utils import DatasetMeta, QAMFileWriter, yield_sample_from_file
 
 
-def _get_total_groups_from_sources(
-    shards: List[str], max_words_per_group: int, workers_count: int
-) -> int:
+def _get_total_groups_from_sources(shards: List[str], workers_count: int) -> int:
     total_groups = 0
 
     for shard in shards:
@@ -25,17 +23,13 @@ def _get_total_groups_from_sources(
     return total_groups
 
 
-def _get_total_groups_from_sources_dist(
-    shards: List[str], max_words_per_group: int, workers_count: int
-) -> int:
+def _get_total_groups_from_sources_dist(shards: List[str], workers_count: int) -> int:
     ctx = mp.get_context("fork")
     data_q = ctx.Queue(workers_count)
     total_groups = 0
     procs = []
 
-    def _update_total_groups(
-        shards: List[str], max_words_per_group: int, data_q: "mp.Queue"
-    ):
+    def _update_total_groups(shards: List[str], data_q: "mp.Queue"):
         groups = 0
         for shard in shards:
             for _ in yield_sample_from_file(shard):
@@ -46,7 +40,7 @@ def _get_total_groups_from_sources_dist(
     for i in range(workers_count):
         p = ctx.Process(
             target=_update_total_groups,
-            args=(shards[i::workers_count], max_words_per_group, data_q),
+            args=(shards[i::workers_count], data_q),
             daemon=True,
         )
         p.start()
@@ -59,7 +53,7 @@ def _get_total_groups_from_sources_dist(
     return total_groups
 
 
-def _reader(shards: List[str], max_words_per_group: int, data_q: "mp.Queue"):
+def _reader(shards: List[str], data_q: "mp.Queue"):
 
     for shard in shards:
         for sample in yield_sample_from_file(shard):
@@ -107,7 +101,6 @@ def _parallel_resharding(
     shards: List[str],
     total_shards_req: int,
     group_type: str,
-    max_words_per_group: int,
     workers_count: int,
     id: int,
     **kwargs,
@@ -119,7 +112,7 @@ def _parallel_resharding(
     for i in range(workers_count):
         p = ctx.Process(
             target=_reader,
-            args=(shards[i::workers_count], max_words_per_group, data_q),
+            args=(shards[i::workers_count], data_q),
             daemon=True,
         )
         p.start()
@@ -136,7 +129,6 @@ def _serial_resharding(
     shards: List[str],
     total_shards_req: int,
     group_type: str,
-    max_words_per_group: int,
     workers_count: int,
     id: int,
     **kwargs,
@@ -168,7 +160,6 @@ def _reshard_datasets(
     group_type: str,
     gpus_count: int,
     worker_per_gpu_count: int,
-    max_words_per_group: int,
     info_q: "mp.Queue",
     total_groups: Optional[int] = None,
     req_dist_workers: bool = False,
@@ -184,9 +175,7 @@ def _reshard_datasets(
     workers_count = min(worker_per_gpu_count, len(shards))
 
     total_groups = (
-        total_groups
-        if total_groups
-        else get_total_groups(shards, max_words_per_group, worker_per_gpu_count)
+        total_groups if total_groups else get_total_groups(shards, worker_per_gpu_count)
     )
     total_shards_req = gpus_count * worker_per_gpu_count
 
@@ -207,7 +196,6 @@ def _reshard_datasets(
         shards=shards,
         total_shards_req=total_shards_req,
         group_type=group_type,
-        max_words_per_group=max_words_per_group,
         workers_count=workers_count,
         id=id,
         base_dir=reshard_dir,
@@ -224,7 +212,6 @@ def _is_reshard_required(
     dataset_names: List[str],
     gpus_count: int,
     worker_per_gpu_count: int,
-    max_words_per_group: int,
 ) -> Tuple[bool, Dict[str, str]]:
     metafile_path = os.path.join(reshard_dir, "meta.json")
 
@@ -246,7 +233,6 @@ def _is_reshard_required(
             [True if ds in meta["dataset_names"] else False for ds in dataset_names]
         )
         and (meta["worker_per_gpu_count"] % worker_per_gpu_count == 0)
-        and (meta["max_words_per_group"] == max_words_per_group)
     ):
         return False, meta
 
@@ -312,7 +298,6 @@ def reshard_if_needed(
     gpus_count: Union[int, List[int]],
     worker_per_gpu_count: int,
     batch_size: int,
-    max_words_per_group: int,
 ) -> DatasetMeta:
     overall_meta = DatasetMeta()
 
@@ -344,7 +329,6 @@ def reshard_if_needed(
                         ds_subs.keys(),
                         gpus_count,
                         worker_per_gpu_count,
-                        max_words_per_group,
                     )
 
                 if not resharding_required:
@@ -363,13 +347,7 @@ def reshard_if_needed(
                         group_type,
                         gpus_count,
                         worker_per_gpu_count,
-                        max_words_per_group,
                         info_q,
-                        (
-                            meta.get(group_type, None)
-                            if meta.get("max_words_per_group", 0) == max_words_per_group
-                            else None
-                        ),
                         True if req_dist_resharding else False,
                         i,
                     ),
@@ -387,7 +365,6 @@ def reshard_if_needed(
                 "dataset_names": list(ds_subs.keys()),
                 "gpus_count": gpus_count,
                 "worker_per_gpu_count": worker_per_gpu_count,
-                "max_words_per_group": max_words_per_group,
             }
             for _ in range(count):
                 group_type, samples_count = info_q.get()

@@ -1,12 +1,13 @@
 import math
+from typing import Optional
 
 import torch
 from omegaconf import DictConfig
 
-from ..constants import SAMPLE_DIM, SUBSAMPLING_FACTOR, WINDOW_SIZE
+from ..constants import MAX_SEQ_LEN, SAMPLE_DIM, SUBSAMPLING_FACTOR
 from ..utils import Classifier
+from .auto_pos_enc import AutoPosEncoder
 from .conformer import ConformerLayer
-from .position_encoder import PositionalEncoding
 
 
 class ConfEncoderWithClassificationHeads(torch.nn.Module):
@@ -15,14 +16,12 @@ class ConfEncoderWithClassificationHeads(torch.nn.Module):
         encoder: DictConfig,
         classification_layer: DictConfig,
         input_dim: int = SAMPLE_DIM,
-        max_seq_len: int = WINDOW_SIZE,
+        seq_len: int = MAX_SEQ_LEN,
     ) -> None:
         super().__init__()
 
-        self.embedding = torch.nn.Sequential(
-            torch.nn.Linear(input_dim, encoder.input_dim),
-            PositionalEncoding(encoder.input_dim, max_seq_len),
-        )
+        self.embedding = AutoPosEncoder(input_dim, encoder.input_dim)
+        self.seq_len = seq_len
 
         down_samplers_count = int(math.log2(SUBSAMPLING_FACTOR))
         layers = []
@@ -33,6 +32,7 @@ class ConfEncoderWithClassificationHeads(torch.nn.Module):
             layers.append(ConformerLayer(**encoder_params, downsampling_factor=2))
         for _ in range(num_layers):
             layers.append(ConformerLayer(**encoder_params))
+        layers.append(ConformerLayer(**encoder_params, output_dim=1))
 
         self.conformer_layers = torch.nn.ModuleList(layers)
 
@@ -43,7 +43,7 @@ class ConfEncoderWithClassificationHeads(torch.nn.Module):
                 else []
             ),
             *(
-                [getattr(torch.nn.functional, classification_layer.activation)]
+                [getattr(torch.nn, classification_layer.activation)]
                 if classification_layer.activation
                 else []
             ),
@@ -52,8 +52,14 @@ class ConfEncoderWithClassificationHeads(torch.nn.Module):
         self.classification_head_count: int = len(Classifier.__members__)
 
     def forward(
-        self, inputs: torch.Tensor, lengths: torch.Tensor
+        self, inputs: torch.Tensor, lengths: Optional[torch.Tensor] = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        _, seq_len, _ = inputs.shape
+        if seq_len != self.seq_len:
+            raise RuntimeError(
+                f"Expected sequence length is {self.seq_len}, but got an input with seq len {seq_len}. Try padding the input."
+            )
+
         result = self.embedding(inputs)
         for layer in self.conformer_layers:
             result, lengths = layer(result, lengths)

@@ -20,7 +20,7 @@ def pretrain(overrides: List[str] = []):
     cfg = get_cfg("train", overrides, "training")
     pl.seed_everything(cfg.experiment.seed)
 
-    meta = reshard_if_needed()
+    # meta = reshard_if_needed(cfg.symbols, cfg.trainer.devices, cfg.data.num_workers, cfg.data.batch_size)
 
     model = ConfEncoderWithClassificationHeads(**cfg.model)
 

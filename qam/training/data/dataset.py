@@ -7,7 +7,7 @@ from infinibatch.datasets import chunked_dataset_iterator
 from infinibatch.iterators import BucketedReadaheadBatchIterator
 from torch.utils.data import IterableDataset
 
-from ...constants import DATA_DIR, MAX_SEQ_LEN, STRIDE_LENGTH, TREND_UPDATE_SEQ_LEN
+from ...constants import DATA_DIR, MAX_SEQ_LEN
 from ...utils import QAMDataSample, yield_sample_from_file
 
 
@@ -21,6 +21,7 @@ class NCEDataset(IterableDataset):
         seed: int = 7,
     ):
         self.base_dir = Path(f"{DATA_DIR}/{split_name}").resolve()
+        self.split = split_name
         self.batch_size = batch_size
         self.buffer_factor = buffer_factor
         self.seed = seed
@@ -61,7 +62,12 @@ class NCEDataset(IterableDataset):
             yield from yield_sample_from_file(chunk_ref)
 
     def __iter__(self) -> Generator[QAMDataSample, None, None]:
-        files = list(self.base_dir.rglob("**/*jsonl.gz"))[
+
+        # TODO:
+        # based on worker id, we have to assign a symbol to worker. Provided the worker count and number of symbols should be equal.
+        # since we cannot shuffle within a symbol's shards, we shouldn't shuffle within the shards, since it was written serially, as per timesteps.
+
+        files = list(self.base_dir.rglob(f"**/{self.split}*jsonl.gz"))[
             self.worker_id :: self.num_workers
         ]
         random.shuffle(files)

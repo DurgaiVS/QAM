@@ -1,6 +1,8 @@
-from typing import Union
+from typing import Optional, Union
 
 import torch
+
+from ..constants import MAX_SEQ_LEN, SUBSAMPLING_FACTOR
 
 
 class ConvolutionModule(torch.nn.Module):
@@ -20,6 +22,7 @@ class ConvolutionModule(torch.nn.Module):
         input_dim: int,
         num_channels: int,
         depthwise_kernel_size: int,
+        output_dim: Optional[int] = None,
         dropout: float = 0.0,
         bias: bool = False,
         use_group_norm: bool = False,
@@ -30,7 +33,11 @@ class ConvolutionModule(torch.nn.Module):
             raise ValueError(
                 "depthwise_kernel_size must be odd to achieve 'SAME' padding."
             )
+        self.pooler = True if output_dim is not None else False
         self.layer_norm = torch.nn.LayerNorm(input_dim)
+        if self.pooler:
+            input_dim = int(MAX_SEQ_LEN / SUBSAMPLING_FACTOR)
+            num_channels = int(MAX_SEQ_LEN / SUBSAMPLING_FACTOR)
         self.sequential = torch.nn.Sequential(
             torch.nn.Conv1d(
                 input_dim,
@@ -58,7 +65,7 @@ class ConvolutionModule(torch.nn.Module):
             torch.nn.SiLU(),
             torch.nn.Conv1d(
                 num_channels,
-                input_dim,
+                output_dim if output_dim is not None else input_dim,
                 kernel_size=1,
                 stride=1,
                 padding=0,
@@ -76,9 +83,10 @@ class ConvolutionModule(torch.nn.Module):
             torch.Tensor: output, with shape `(B, T, D)`.
         """
         x = self.layer_norm(input)
-        x = x.transpose(1, 2)
+        if not self.pooler:
+            x = x.transpose(1, 2)
         x = self.sequential(x)
-        return x.transpose(1, 2)
+        return x if self.pooler else x.transpose(1, 2)
 
 
 # own implementation ...

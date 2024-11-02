@@ -2,6 +2,11 @@ defaults:
     - _self_
     - override hydra/job_logging: stdout
 
+symbols:
+  - AAPL
+  - NVDA
+  # ...
+
 experiment:
   output_dir: ???
   grad_acc: ???
@@ -13,7 +18,7 @@ experiment:
   metric_to_track: val/loss
   metric_mode: min
   focal_gamma: 3
-  activation: null # input format: relu, gelu, ...
+  activation: null # input format: ReLU, GELU, ...
 
   seed: 7
   gamma: 0.5
