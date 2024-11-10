@@ -7,10 +7,11 @@ from torchmetrics import FBetaScore, Precision, Recall
 
 from ..constants import PAD_ID
 from ..modules.encoder import ConfEncoderWithClassificationHeads
-from ..training.data.data_sample import QAMDataBatch, QAMDataSample
-from .utils import QAMInferenceResultsWriter, defaultdict, QAMOverallDataMetric
+from ..utils import QAMDataBatch, QAMDataSample
+from .utils import QAMInferenceResultsWriter, QAMOverallDataMetric, defaultdict
 
 
+# TODO: Update the Dataset Predictor and Results writer to up-to-date.
 class QAMDatasetPredictor(pl.LightningModule):
     def __init__(
         self,
@@ -109,7 +110,9 @@ class QAMDatasetPredictor(pl.LightningModule):
                     )
                     cls = gl.get(f"{catg.capitalize()}Label")
                     for id, val in enumerate(tmp):
-                        score_dict[f"{catg}_{cls(id).name.lower()}_{metric}"] = val.cpu().item()
+                        score_dict[f"{catg}_{cls(id).name.lower()}_{metric}"] = (
+                            val.cpu().item()
+                        )
 
                     score_dict[f"{catg}_{metric}"] = tmp.mean().cpu().item()
                     acc += tmp.mean()
@@ -118,7 +121,10 @@ class QAMDatasetPredictor(pl.LightningModule):
                 score_dict[f"{metric}"] = acc.cpu().item()
 
             self.writer.write_sample_wise_stats(
-                sample, punct_pred.squeeze(0).cpu(), capit_pred.squeeze(0).cpu(), score_dict
+                sample,
+                punct_pred.squeeze(0).cpu(),
+                capit_pred.squeeze(0).cpu(),
+                score_dict,
             )
 
     def on_predict_epoch_end(self) -> None:

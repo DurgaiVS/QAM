@@ -1,22 +1,55 @@
+import os
+from typing import List
+
 import pytorch_lightning as pl
+from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
-from ...constants import DATA_DIR
-from .dataset import NCEDataset
+from ...constants import DATA_DIR, RESHARD_DIR_NAME
+from .dataset import QAMDataset
 from .utils import collate_fn, worker_init_fn
 
 
-class NCEDataModule(pl.LightningDataModule):
-    def __init__(self, num_workers: int, batch_size: int, buffer_factor: int):
+class QAMDataModule(pl.LightningDataModule):
+    def __init__(
+        self, symbols: DictConfig, num_workers: int, batch_size: int, buffer_factor: int
+    ):
         super().__init__()
+        self.symbols = symbols
         self._num_workers = num_workers
         self._batch_size = batch_size
         self._buffer_factor = buffer_factor
 
     def setup(self, stage: str) -> None:
-        self.train_dataset = NCEDataset(DATA_DIR, "train", self._batch_size, True)
-        self.val_dataset = NCEDataset(DATA_DIR, "val", self._batch_size)
-        self.test_dataset = NCEDataset(DATA_DIR, "test", self._batch_size)
+        self.train_dataset = QAMDataset(
+            os.path.join(DATA_DIR, RESHARD_DIR_NAME),
+            "train",
+            self._batch_size,
+            self._buffer_factor,
+            True,
+        )
+
+        self.val_dataset = [
+            QAMDataset(
+                os.path.join(DATA_DIR, s_name, RESHARD_DIR_NAME),
+                "dev",
+                self._batch_size,
+                self._buffer_factor,
+            )
+            for s_name, s_info in self.symbols.items()
+            if s_info["dev"]
+        ]
+
+        self.test_dataset = [
+            QAMDataset(
+                os.path.join(DATA_DIR, s_name, RESHARD_DIR_NAME),
+                "test",
+                self._batch_size,
+                self._buffer_factor,
+            )
+            for s_name, s_info in self.symbols.items()
+            if s_info["test"]
+        ]
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -28,27 +61,33 @@ class NCEDataModule(pl.LightningDataModule):
             worker_init_fn=worker_init_fn,
         )
 
-    def val_dataloader(self) -> DataLoader:
-        return DataLoader(
-            dataset=self.val_dataset,
-            batch_size=self._batch_size,
-            num_workers=self._num_workers,
-            pin_memory=True,
-            collate_fn=collate_fn,
-            worker_init_fn=worker_init_fn,
-        )
+    def val_dataloader(self) -> List[DataLoader]:
+        return [
+            DataLoader(
+                dataset=ds,
+                batch_size=self._batch_size,
+                num_workers=self._num_workers,
+                pin_memory=True,
+                collate_fn=collate_fn,
+                worker_init_fn=worker_init_fn,
+            )
+            for ds in self.val_dataset
+        ]
 
-    def test_dataloader(self) -> DataLoader:
-        return DataLoader(
-            dataset=self.test_dataset,
-            batch_size=self._batch_size,
-            num_workers=self._num_workers,
-            pin_memory=True,
-            collate_fn=collate_fn,
-            worker_init_fn=worker_init_fn,
-        )
+    def test_dataloader(self) -> List[DataLoader]:
+        return [
+            DataLoader(
+                dataset=ds,
+                batch_size=self._batch_size,
+                num_workers=self._num_workers,
+                pin_memory=True,
+                collate_fn=collate_fn,
+                worker_init_fn=worker_init_fn,
+            )
+            for ds in self.test_dataset
+        ]
 
-    def predict_dataloader(self) -> DataLoader:
+    def predict_dataloader(self) -> List[DataLoader]:
         return self.test_dataloader()
 
     def teardown(self, stage: str):

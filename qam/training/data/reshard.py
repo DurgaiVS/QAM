@@ -9,55 +9,31 @@ from typing import Dict, Generator, List, Optional, Tuple, Union
 import torch.multiprocessing as mp
 from tqdm import tqdm
 
-from ...constants import RESHARD_DIR_NAME, SUBSET
-from ...utils import DatasetMeta, QAMFileWriter, yield_sample_from_file
+from ...constants import DATA_DIR, RESHARD_DIR_NAME, SPLITS, SUB_SPLITS
+from ...utils import (
+    DatasetMeta,
+    QAMFileWriter,
+    get_samplescount_per_shard,
+    yield_sample_from_serially_sorted_files,
+)
 
 
-def _get_total_groups_from_sources(shards: List[str], workers_count: int) -> int:
-    total_groups = 0
+def _get_total_samplescount(
+    shards: List[str], data_q: Optional["mp.Queue"] = None
+) -> int:
+    total_samples = 0
 
-    for shard in shards:
-        for _ in yield_sample_from_file(shard):
-            total_groups += 1
+    for _ in yield_sample_from_serially_sorted_files(shards):
+        total_samples += 1
 
-    return total_groups
-
-
-def _get_total_groups_from_sources_dist(shards: List[str], workers_count: int) -> int:
-    ctx = mp.get_context("fork")
-    data_q = ctx.Queue(workers_count)
-    total_groups = 0
-    procs = []
-
-    def _update_total_groups(shards: List[str], data_q: "mp.Queue"):
-        groups = 0
-        for shard in shards:
-            for _ in yield_sample_from_file(shard):
-                groups += 1
-
-        data_q.put(groups)
-
-    for i in range(workers_count):
-        p = ctx.Process(
-            target=_update_total_groups,
-            args=(shards[i::workers_count], data_q),
-            daemon=True,
-        )
-        p.start()
-        procs.append(p)
-
-    for p in procs:
-        total_groups += data_q.get()
-        p.join()
-
-    return total_groups
+    if data_q:
+        data_q.put(total_samples)
+    return total_samples
 
 
 def _reader(shards: List[str], data_q: "mp.Queue"):
-
-    for shard in shards:
-        for sample in yield_sample_from_file(shard):
-            data_q.put(sample)
+    for sample in yield_sample_from_serially_sorted_files(shards):
+        data_q.put(sample)
 
     data_q.put(None)
 
@@ -67,11 +43,12 @@ def _writer(
     readers_count: int,
     total_shards_req: int,
     group_type: str,
-    id: int,
+    id: Optional[str],
     **kwargs,
 ):
-
-    pbar = tqdm(total=total_shards_req, desc=f"{group_type}-{id}", leave=False)
+    tqdm.set_lock(tqdm.get_lock())
+    desc = f"{id}-{group_type}" if id else group_type
+    pbar = tqdm(total=total_shards_req, desc=desc, leave=False)
     workers_done = 0
     _fc = 0
 
@@ -97,123 +74,12 @@ def _writer(
     pbar.close()
 
 
-def _parallel_resharding(
-    shards: List[str],
-    total_shards_req: int,
-    group_type: str,
-    workers_count: int,
-    id: int,
-    **kwargs,
-):
-    ctx = mp.get_context("fork")
-    data_q = ctx.Queue(-1)
-    procs: List[mp.Process] = []
-
-    for i in range(workers_count):
-        p = ctx.Process(
-            target=_reader,
-            args=(shards[i::workers_count], data_q),
-            daemon=True,
-        )
-        p.start()
-
-        procs.append(p)
-
-    _writer(data_q, workers_count, total_shards_req, group_type, id, **kwargs)
-
-    for p in procs:
-        p.kill()
-
-
-def _serial_resharding(
-    shards: List[str],
-    total_shards_req: int,
-    group_type: str,
-    workers_count: int,
-    id: int,
-    **kwargs,
-):
-    pbar = tqdm(total=total_shards_req, desc=f"{group_type}-{id}", leave=False)
-    _fc = 0
-
-    with QAMFileWriter(**kwargs) as itn_writer:
-        for shard in shards:
-            for sample in yield_sample_from_file(shard):
-                itn_writer.write(sample)
-
-                if itn_writer._files_counter != _fc:
-                    pbar.update()
-                    _fc = itn_writer._files_counter
-
-                    if _fc == total_shards_req:
-                        break
-
-            if _fc == total_shards_req:
-                break
-
-    pbar.close()
-
-
-def _reshard_datasets(
-    shards: List[str],
-    reshard_dir: str,
-    group_type: str,
-    gpus_count: int,
-    worker_per_gpu_count: int,
-    info_q: "mp.Queue",
-    total_groups: Optional[int] = None,
-    req_dist_workers: bool = False,
-    id: int = 0,
-):
-    tqdm.set_lock(tqdm.get_lock())
-    if req_dist_workers:
-        get_total_groups = _get_total_groups_from_sources_dist
-        reshard = _parallel_resharding
-    else:
-        get_total_groups = _get_total_groups_from_sources
-        reshard = _serial_resharding
-    workers_count = min(worker_per_gpu_count, len(shards))
-
-    total_groups = (
-        total_groups if total_groups else get_total_groups(shards, worker_per_gpu_count)
-    )
-    total_shards_req = gpus_count * worker_per_gpu_count
-
-    if total_groups < gpus_count:
-        logging.info(
-            f"Groups count {total_groups} is much lesser than GPUs count {gpus_count} for case `{group_type}-{id}`. So, skipping resharding."
-        )
-        return
-
-    while (total_groups < total_shards_req) and (total_shards_req > gpus_count):
-        total_shards_req -= gpus_count
-
-    groups_per_shard = total_groups // total_shards_req
-    # extra_one_rounder = 0 # total_groups % total_shards_req
-    info_q.put((group_type, groups_per_shard * total_shards_req))
-
-    reshard(
-        shards=shards,
-        total_shards_req=total_shards_req,
-        group_type=group_type,
-        workers_count=workers_count,
-        id=id,
-        base_dir=reshard_dir,
-        filename_stem=group_type,
-        extension="jsonl.gz",
-        count_per_file=groups_per_shard,
-    )
-
-    logging.info(f"Resharding done for case `{group_type}-{id}`.")
-
-
 def _is_reshard_required(
     reshard_dir: str,
-    dataset_names: List[str],
-    gpus_count: int,
-    worker_per_gpu_count: int,
-) -> Tuple[bool, Dict[str, str]]:
-    metafile_path = os.path.join(reshard_dir, "meta.json")
+    sub_split: str,
+    meta: DatasetMeta,
+) -> bool:
+    metafile_path = os.path.join(reshard_dir, f"meta-{sub_split}.json")
 
     if not os.path.exists(metafile_path):
         if os.path.exists(reshard_dir):
@@ -222,159 +88,248 @@ def _is_reshard_required(
             )
             shutil.rmtree(reshard_dir)
         os.mkdir(reshard_dir)
-        return True, {}
+        return True
 
-    with open(metafile_path, "r") as f:
-        meta = json.load(f)
+    resharded_meta = DatasetMeta.from_file(metafile_path)
+    meta.transfer_data_from(resharded_meta)
 
-    if (
-        (meta["gpus_count"] % gpus_count == 0)
-        and all(
-            [True if ds in meta["dataset_names"] else False for ds in dataset_names]
-        )
-        and (meta["worker_per_gpu_count"] % worker_per_gpu_count == 0)
-    ):
-        return False, meta
+    if resharded_meta.is_aligning_with(meta):
+        return False
 
     logging.info(
         f"Metadata mismatching, removing existing resharded directory `{reshard_dir}`"
     )
     shutil.rmtree(reshard_dir)
     os.mkdir(reshard_dir)
-    return True, meta
+    return True
 
 
-def _get_category(datasets: Dict[str, Dict[str, str]]) -> str:
-    is_train = False
-    is_eval = False
-
-    for d_name, d_path in datasets.items():
-        path = d_path["base_dir"]
-
-        if "training" in path:
-            is_train = True
-        elif "evaluation" in path:
-            is_eval = True
-
-    assert (
-        is_train or is_eval
-    ), "Got neither of expected dataset categories, training or evaluation."
-    assert not (
-        is_train and is_eval
-    ), "Cannot perform resharding for mixed dataset categories, evaluation and training categories."
-
-    if is_train:
-        return "train"
-    elif is_eval:
-        return "eval"
-
-
-def path_resolver(group_type: str, base_path: Union[str, Path]) -> List[Path]:
+def path_resolver(split_name: str, base_path: Union[str, Path]) -> List[Path]:
     if isinstance(base_path, str):
         base_path = Path(base_path).resolve()
     else:
         base_path.resolve()
 
-    return list(base_path.glob(f"{group_type}-*.jsonl.gz"))
+    return list(base_path.rglob(f"{split_name}-*.jsonl.gz"))
 
 
-def _iterator_as_per_category(
-    catg: str, ds: Dict[str, Dict[str, str]]
-) -> Generator[Tuple[str, Dict[str, Dict[str, str]]], None, None]:
-    if catg == "train":
-        reshard_dir = (
-            Path(next(iter(ds.values()))["base_dir"]).parent / RESHARD_DIR_NAME
-        )
-        yield str(reshard_dir), ds
-
-    elif catg == "eval":
-        for ds_name, ds_val in ds.items():
-            reshard_dir = Path(ds_val["base_dir"]) / RESHARD_DIR_NAME
-            yield str(reshard_dir), {ds_name: ds_val}
-
-
-def reshard_if_needed(
-    datasets: List[Dict[str, Dict[str, str]]],
+def _resharder_for_eval(
+    sub_split: str,
+    s_name: str,
     gpus_count: Union[int, List[int]],
     worker_per_gpu_count: int,
     batch_size: int,
-) -> DatasetMeta:
-    overall_meta = DatasetMeta()
-
-    if not isinstance(gpus_count, int):
-        gpus_count = len(gpus_count)
+    req_total_shards: int,
+):
 
     ctx = mp.get_context("fork")
-    info_q = ctx.Queue(-1)
+
+    reshard_dir = os.path.join(DATA_DIR, s_name, RESHARD_DIR_NAME)
+    meta = DatasetMeta(batch_size, [s_name], gpus_count, worker_per_gpu_count)
+    reshard_req = _is_reshard_required(reshard_dir, sub_split, meta)
+
+    if not reshard_req:
+        return
+
+    data_q = ctx.Queue(-1)
+    shards = path_resolver(sub_split, os.path.join(DATA_DIR, s_name, "processed"))
+    shards.sort()
+
+    samples_count = (
+        _get_total_samplescount(shards)
+        if (getattr(meta, f"{sub_split}_samples_count") is None)
+        else getattr(meta, f"{sub_split}_samples_count")
+    )
+    samples_per_shard = get_samplescount_per_shard(samples_count, req_total_shards)
+
+    p = ctx.Process(target=_reader, args=(shards, data_q))
+    p.start()
+
+    _writer(
+        data_q,
+        1,
+        req_total_shards,
+        sub_split,
+        id=s_name,
+        base_dir=reshard_dir,
+        filename_stem=sub_split,
+        extension="jsonl.gz",
+        count_per_file=samples_per_shard,
+    )
+
+    meta.compute_max_safe_batches_count().write_to(
+        os.path.join(reshard_dir, f"meta-{sub_split}.json")
+    )
+    p.join()
+
+
+def resharder_for_eval(
+    sub_split: str,
+    symbols_info: Dict[str, Dict[str, bool]],
+    gpus_count: Union[int, List[int]],
+    worker_per_gpu_count: int,
+    batch_size: int,
+):
+    assert (
+        sub_split in SPLITS["eval"]
+    ), f"Only {SPLITS['eval']} sub splits are supported, but got {sub_split}."
+
     procs: List[mp.Process] = []
+    ctx = mp.get_context("fork")
+    req_total_shards = gpus_count * worker_per_gpu_count
+    for s_name, s_info in symbols_info.items():
+        if not s_info[sub_split]:
+            continue
 
-    for ds in datasets:
-        catg = _get_category(ds)
+        p = ctx.Process(
+            target=_resharder_for_eval,
+            args=(
+                sub_split,
+                s_name,
+                gpus_count,
+                worker_per_gpu_count,
+                batch_size,
+                req_total_shards,
+            ),
+        )
+        p.start()
 
-        for i, (reshard_dir, ds_subs) in enumerate(_iterator_as_per_category(catg, ds)):
-            count = 0
-            resharding_required, meta = None, None
-            overall_meta.set_reshard_dir_for_category(catg, reshard_dir)
-            for group_type in SUBSET[catg]:
-                shards: List[Path] = []
-                for d_name, d_path in ds_subs.items():
-                    shards.extend(path_resolver(group_type, d_path["base_dir"]))
-
-                if len(shards) == 0:
-                    continue
-
-                if not isinstance(resharding_required, bool):
-                    resharding_required, meta = _is_reshard_required(
-                        reshard_dir,
-                        ds_subs.keys(),
-                        gpus_count,
-                        worker_per_gpu_count,
-                    )
-
-                if not resharding_required:
-                    logging.info(f"Resharding not required for category `{catg}-{i}`")
-                    break
-
-                logging.info(f"Resharding {catg}'s `{group_type}-{i}` group")
-                req_dist_resharding = len(shards) > worker_per_gpu_count
-                random.shuffle(shards)
-
-                p = ctx.Process(
-                    target=_reshard_datasets,
-                    args=(
-                        shards,
-                        reshard_dir,
-                        group_type,
-                        gpus_count,
-                        worker_per_gpu_count,
-                        info_q,
-                        True if req_dist_resharding else False,
-                        i,
-                    ),
-                    daemon=False if req_dist_resharding else True,
-                )
-                p.start()
-                count += 1
-                procs.append(p)
-
-            if not resharding_required:
-                overall_meta.update_stats_for_category(catg, meta)
-                continue
-
-            meta = {
-                "dataset_names": list(ds_subs.keys()),
-                "gpus_count": gpus_count,
-                "worker_per_gpu_count": worker_per_gpu_count,
-            }
-            for _ in range(count):
-                group_type, samples_count = info_q.get()
-                meta[group_type] = samples_count
-                overall_meta.update_stats_for_group(group_type, samples_count)
-
-            with open(os.path.join(reshard_dir, "meta.json"), "w") as f:
-                json.dump(meta, f, indent=4)
+        procs.append(p)
 
     for p in procs:
         p.join()
 
-    return overall_meta.compute_max_safe_batches_count(batch_size, gpus_count)
+
+def _samples_counter_for_train(shards: List[List[Path]]) -> int:
+    ctx = mp.get_context("fork")
+    data_q = ctx.Queue(len(shards))
+    procs: List[mp.Process] = []
+    total_samples_count: int = 0
+
+    for sub_shards in shards:
+        p = ctx.Process(target=_get_total_samplescount, args=(sub_shards, data_q))
+        p.start()
+        procs.append(p)
+
+    for p in procs:
+        p.join()
+        samples_count = data_q.get()
+        total_samples_count += samples_count
+
+    return total_samples_count
+
+
+def resharder_for_train(
+    sub_split: str,
+    symbols_info: Dict[str, Dict[str, bool]],
+    gpus_count: Union[int, List[int]],
+    worker_per_gpu_count: int,
+    batch_size: int,
+):
+    assert (
+        sub_split in SPLITS["train"]
+    ), f"Only {SPLITS['train']} sub splits are supported, but got {sub_split}."
+
+    reshard_dir = os.path.join(DATA_DIR, RESHARD_DIR_NAME)
+    req_total_shards = gpus_count * worker_per_gpu_count
+    ctx = mp.get_context("fork")
+    procs: List[mp.Process] = []
+    meta = DatasetMeta(
+        batch_size,
+        [s_name for s_name, s_info in symbols_info.items() if s_info["train"]],
+        gpus_count,
+        worker_per_gpu_count,
+    )
+
+    reshard_req = _is_reshard_required(reshard_dir, sub_split, meta)
+    if not reshard_req:
+        return
+
+    shards: List[List[Path]] = []
+    data_q = ctx.Queue(-1)
+
+    for s_name, s_info in symbols_info.items():
+        if not s_info["train"]:
+            continue
+
+        sub_shards = path_resolver("train", os.path.join(DATA_DIR, s_name, "processed"))
+        sub_shards.sort()
+        shards.append(sub_shards)
+
+    samples_count = (
+        _samples_counter_for_train(shards)
+        if (getattr(meta, f"{sub_split}_samples_count") is None)
+        else getattr(meta, f"{sub_split}_samples_count")
+    )
+    samples_per_shard = get_samplescount_per_shard(samples_count, req_total_shards)
+
+    for sub_shards in shards:
+        p = ctx.Process(target=_reader, args=(sub_shards, data_q))
+        p.start()
+        procs.append(p)
+
+    _writer(
+        data_q,
+        len(shards),
+        req_total_shards,
+        sub_split,
+        base_dir=reshard_dir,
+        filename_stem=sub_split,
+        extension="jsonl.gz",
+        count_per_file=samples_per_shard,
+    )
+
+    meta.compute_max_safe_batches_count().write_to(
+        os.path.join(reshard_dir, f"meta-{sub_split}.json")
+    )
+    for p in procs:
+        p.join()
+
+
+def reshard_if_needed(
+    symbols_info: Dict[str, Dict[str, bool]],
+    gpus_count: Union[int, List[int]],
+    worker_per_gpu_count: int,
+    batch_size: int,
+    only_selective_splits: List[str] = SUB_SPLITS,
+) -> DatasetMeta:
+    if not isinstance(gpus_count, int):
+        gpus_count = len(gpus_count)
+
+    gl = globals()
+    ctx = mp.get_context("fork")
+    procs: List[mp.Process] = []
+    dataset_meta = DatasetMeta(batch_size, list(symbols_info.keys()))
+
+    for split, sub_splits in SPLITS:
+        resharder = gl.get(f"resharder_for_{split}")
+        for sub_split in sub_splits:
+            if sub_split not in only_selective_splits:
+                continue
+
+            p = ctx.Process(
+                target=resharder,
+                args=(
+                    sub_split,
+                    symbols_info,
+                    gpus_count,
+                    worker_per_gpu_count,
+                    batch_size,
+                ),
+                daemon=False,
+            )
+            p.start()
+
+            procs.append(p)
+
+    for p in procs:
+        p.join()
+
+    meta = DatasetMeta.from_file(
+        os.path.join(DATA_DIR, RESHARD_DIR_NAME, "meta-train.json")
+    ).compute_max_safe_batches_count()
+
+    assert (
+        meta.train_steps_count is not None
+    ), "Expected meta to be updated by train steps count, but not..."
+    return meta

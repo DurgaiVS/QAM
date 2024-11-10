@@ -2,6 +2,7 @@ import asyncio
 import gzip
 import json
 import logging
+import math
 import multiprocessing as mp
 import os
 import threading
@@ -18,6 +19,7 @@ from typing import (
     Optional,
     Protocol,
     Union,
+    overload,
     runtime_checkable,
 )
 
@@ -30,8 +32,37 @@ from .constants import (
     LABEL_THRESHOLD_VALUE,
     MAX_SEQ_LEN,
     STRIDE_LENGTH,
+    SUB_SPLITS,
     TREND_UPDATE_SEQ_LEN,
 )
+
+
+class defaultdict(dict):
+    def __init__(
+        self,
+        default_factory: Optional[Callable] = None,
+        default_factory_key_argument: bool = False,
+        /,
+        *args,
+        **kwargs,
+    ):
+        self.default_factory = default_factory
+        self.default_factory_key_argument = default_factory_key_argument
+
+        super().__init__(*args, **kwargs)
+        ...
+
+    def __missing__(self, key: str):
+        if self.default_factory:
+            self[key] = (
+                self.default_factory(key)
+                if self.default_factory_key_argument
+                else self.default_factory()
+            )
+            return self[key]
+        else:
+            super().__missing__(key)
+
 
 QAMTimePointTuple = namedtuple(
     "QAMTimePointTuple",
@@ -47,6 +78,16 @@ QAMTimePointTuple = namedtuple(
         "time_hex",
     ],
 )
+
+
+@overload
+def get_samplescount_per_shard(samples_count: int, shards_count: int) -> int: ...
+
+
+def get_samplescount_per_shard(
+    samples_count: int, gpus_count: int, workers_per_gpu_count: int = 1
+) -> int:
+    return int(math.floor(samples_count / (gpus_count * workers_per_gpu_count)))
 
 
 @runtime_checkable
@@ -94,13 +135,13 @@ class QAMTimePoint:
     def __ne__(self, other: "QAMTimePoint") -> bool:
         return (self.symbol != other.symbol) or (self.time != other.time)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return json.dumps(vars(self))
 
-    def to_str(self):
+    def to_str(self) -> str:
         return json.dumps(vars(self))
 
-    def to_dict(self):
+    def to_dict(self) -> Dict:
         return vars(self)
 
     def as_timepoint_tuple(self) -> QAMTimePointTuple:
@@ -129,17 +170,89 @@ class QAMTimePoint:
                 yield cls.from_str(line)
 
 
-# TODO: Finish this
 @dataclass
 class DatasetMeta:
+    batch_size: int
+    symbols: List[str]
+    gpus_count: int
+    workers_per_gpu_count: int
+    train_samples_count: Optional[int] = None
+    dev_samples_count: Optional[int] = None
+    test_samples_count: Optional[int] = None
+    train_steps_count: Optional[int] = None
+    dev_steps_count: Optional[int] = None
+    test_steps_count: Optional[int] = None
 
-    def update_stats_for_group(self, group_type: str, samples_count: int):
-        pass
+    def is_aligning_with(self, other: "DatasetMeta") -> bool:
+        return (
+            (self.gpus_count % other.gpus_count == 0)
+            and (self.workers_per_gpu_count % other.workers_per_gpu_count == 0)
+            and (
+                all([True if sym in self.symbols else False for sym in other.symbols])
+                and (len(self.symbols) == len(other.symbols))
+            )
+        )
 
-    def compute_max_safe_batches_count(
-        self, batch_size: int, gpus_count: int
+    def transfer_data_from(self, other: "DatasetMeta") -> "DatasetMeta":
+        for split in SUB_SPLITS:
+            if getattr(self, f"{split}_samples_count") or (
+                getattr(other, f"{split}_samples_count") is None
+            ):
+                continue
+            setattr(
+                self, f"{split}_samples_count", getattr(other, f"{split}_samples_count")
+            )
+
+    def __repr__(self) -> str:
+        return json.dumps(vars(self))
+
+    def to_str(self) -> str:
+        return json.dumps(vars(self))
+
+    def to_dict(self) -> Dict:
+        return vars(self)
+
+    def write_to(self, filepath):
+        with open(filepath, "w") as f:
+            json.dump(vars(self), f)
+
+    def update_samplescount_for_split(
+        self, split: str, samples_count: int
     ) -> "DatasetMeta":
-        pass
+        if split not in SUB_SPLITS:
+            raise RuntimeError(f"Only `{SUB_SPLITS}` splits are valid.")
+
+        setattr(self, f"{split}_samples_count", samples_count)
+        return self
+
+    def compute_max_safe_batches_count(self) -> "DatasetMeta":
+        for split in SUB_SPLITS:
+            if (getattr(self, f"{split}_steps_count") is not None) or (
+                getattr(self, f"{split}_samples_count") is None
+            ):
+                continue
+
+            setattr(
+                self,
+                f"{split}_steps_count",
+                int(
+                    math.floor(
+                        getattr(self, f"{split}_samples_count")
+                        / (self.gpus_count * self.batch_size)
+                    )
+                ),
+            )
+
+        return self
+
+    @classmethod
+    def from_str(cls, s) -> "DatasetMeta":
+        return cls(**json.loads(s))
+
+    @classmethod
+    def from_file(cls, filepath) -> "DatasetMeta":
+        with open(filepath) as f:
+            return cls(**json.load(f))
 
 
 @dataclass
@@ -147,6 +260,18 @@ class QAMDataSample:
     symbol: str
     frame: Union[List[QAMTimePointTuple], torch.Tensor]
     label: Union[int, torch.Tensor]
+
+    def to_str(self) -> str:
+        return json.dumps(vars(self))
+
+    @classmethod
+    def from_str(cls, s) -> "QAMDataSample":
+        return cls(**json.loads(s))
+
+    def tolist(self) -> "QAMDataSample":
+        if isinstance(self.frame, torch.Tensor):
+            self.frame = self.frame.tolist()
+            self.label = self.label.item()
 
     def tensorize(self) -> "QAMDataSample":
         if not isinstance(self.frame, torch.Tensor):
@@ -193,6 +318,7 @@ class QAMDataSample:
         entry_point: QAMTimePoint, trend_samples: List[QAMTimePoint]
     ) -> Classifier:
         max_val, min_val = entry_point, entry_point
+        graph_diff_max, graph_diff_min = None, None
 
         for trend_sample in trend_samples:
             if trend_sample > max_val:
@@ -201,26 +327,26 @@ class QAMDataSample:
                 min_val = trend_sample
 
         if max_val != entry_point:
-            graph_diff = max_val.low - entry_point.low
+            graph_diff_max = max_val.low - entry_point.low
         elif min_val != entry_point:
-            graph_diff = min_val.low - entry_point.low
+            graph_diff_min = min_val.low - entry_point.low
         else:
             logging.warning(
                 "Encountered a case where the trend is neither moving up nor moving down."
             )
             return Classifier.NO_IMP
 
-        if graph_diff > LABEL_THRESHOLD_VALUE:
+        if graph_diff_max and (graph_diff_max > LABEL_THRESHOLD_VALUE):
             return Classifier.VERY_HIGH
 
-        if graph_diff > 0 and graph_diff < LABEL_THRESHOLD_VALUE:
+        elif graph_diff_min and (graph_diff_min < -LABEL_THRESHOLD_VALUE):
+            return Classifier.VERY_LOW
+
+        elif graph_diff_max and (graph_diff_max < LABEL_THRESHOLD_VALUE):
             return Classifier.HIGH
 
-        if graph_diff < 0 and graph_diff > -LABEL_THRESHOLD_VALUE:
+        elif graph_diff_min and (graph_diff_min > -LABEL_THRESHOLD_VALUE):
             return Classifier.LOW
-
-        if graph_diff < -LABEL_THRESHOLD_VALUE:
-            return Classifier.VERY_LOW
 
     @classmethod
     def init_sample(
@@ -230,7 +356,29 @@ class QAMDataSample:
         return cls.from_list(trend_samples, label)
 
 
-def yield_sample_from_file(self, path: Path) -> Generator[QAMDataSample, None, None]:
+def yield_sample_from_serially_sorted_files(
+    paths: List[Path],
+) -> Generator[QAMDataSample, None, None]:
+    samples: List[QAMTimePoint] = []
+    for path in paths:
+        with gzip.open(path, "rt") as f:
+            for line in f:
+                sample = QAMTimePoint.from_str(line)
+                samples.append(sample)
+
+                if len(samples) < (MAX_SEQ_LEN + TREND_UPDATE_SEQ_LEN):
+                    continue
+
+                yield QAMDataSample.init_sample(
+                    samples[:MAX_SEQ_LEN], samples[MAX_SEQ_LEN:]
+                )
+                samples = samples[STRIDE_LENGTH:]
+
+    if len(samples) > MAX_SEQ_LEN:
+        yield QAMDataSample.init_sample(samples[:MAX_SEQ_LEN], samples[MAX_SEQ_LEN:])
+
+
+def yield_sample_from_file(path: Path) -> Generator[QAMDataSample, None, None]:
     samples: List[QAMTimePoint] = []
     with gzip.open(path, "rt") as f:
         for line in f:
@@ -407,33 +555,6 @@ class QAMFileWriter:
     def __del__(self):
         if not self._file.closed:
             self._file.close()
-
-
-class defaultdict(dict):
-    def __init__(
-        self,
-        default_factory: Optional[Callable] = None,
-        default_factory_key_argument: bool = False,
-        /,
-        *args,
-        **kwargs,
-    ):
-        self.default_factory = default_factory
-        self.default_factory_key_argument = default_factory_key_argument
-
-        super().__init__(*args, **kwargs)
-        ...
-
-    def __missing__(self, key: str):
-        if self.default_factory:
-            self[key] = (
-                self.default_factory(key)
-                if self.default_factory_key_argument
-                else self.default_factory()
-            )
-            return self[key]
-        else:
-            super().__missing__(key)
 
 
 def find_available_filename(

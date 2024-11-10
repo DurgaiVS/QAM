@@ -2,9 +2,15 @@ defaults:
     - _self_
     - override hydra/job_logging: stdout
 
-symbols:
-  - AAPL
-  - NVDA
+symbols_info:
+  AAPL:
+    train: true
+    dev: true
+    test: true
+  NVDA:
+    train: true
+    dev: true
+    test: true
   # ...
 
 experiment:
@@ -14,11 +20,10 @@ experiment:
   base_lr: 1e-4
   min_lr: 1e-10
 
-  validation_step_count: 1000
+  validation_frequency: 0.3 # probability out of 1.0
   metric_to_track: val/loss
   metric_mode: min
   focal_gamma: 3
-  activation: null # input format: ReLU, GELU, ...
 
   seed: 7
   gamma: 0.5
@@ -45,9 +50,10 @@ trainer:
   max_epochs: 100
   profiler: simple
   val_check_interval: ${experiment.validation_step_count}
-  # limit_train_batches: null
+  limit_train_batches: null
 
 data:
+  symbols: ${symbols_info}
   num_workers: 8
   batch_size: 32
   buffer_factor: 4
@@ -64,12 +70,14 @@ model:
     ffn_dim: 256
     num_layers: 16
     depthwise_conv_kernel_size: 9
-    dropout: 0.25
+    dropout: 0.3
     use_group_norm: false
     convolution_first: false
   classification_layer:
-    dropout: 0.3
-    activation: ${experiment.activation}
+    - _target_: torch.nn.Dropout
+      p: 0.3
+    # - _target_: torch.nn.GELU
+
 
 pl_model:
   f_beta: 0.95

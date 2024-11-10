@@ -7,20 +7,22 @@ from infinibatch.datasets import chunked_dataset_iterator
 from infinibatch.iterators import BucketedReadaheadBatchIterator
 from torch.utils.data import IterableDataset
 
-from ...constants import DATA_DIR, MAX_SEQ_LEN
+from ...constants import MAX_SEQ_LEN
 from ...utils import QAMDataSample, yield_sample_from_file
 
 
-class NCEDataset(IterableDataset):
+class QAMDataset(IterableDataset):
     def __init__(
         self,
+        base_dir: str,
         split_name: str,
         batch_size: str,
         buffer_factor: int,
         shuffle: bool = False,
         seed: int = 7,
     ):
-        self.base_dir = Path(f"{DATA_DIR}/{split_name}").resolve()
+        super().__init__()
+        self.base_dir = Path(base_dir).resolve()
         self.split = split_name
         self.batch_size = batch_size
         self.buffer_factor = buffer_factor
@@ -32,12 +34,17 @@ class NCEDataset(IterableDataset):
         self.num_workers = 1
         self.worker_id = 0
 
+    def read_chunk_fn(self, filepath: Path) -> Generator[QAMDataSample, None, None]:
+        with gzip.open(filepath, "rt") as f:
+            for line in f:
+                yield QAMDataSample.from_str(line)
+
     def shuffled_yielder(
         self, chunk_refs: List[Path]
     ) -> Generator[QAMDataSample, None, None]:
         ds_i = chunked_dataset_iterator(
             chunk_refs,
-            yield_sample_from_file,
+            self.read_chunk_fn,
             (self.buffer_factor * self.batch_size),
             train=False,
             shuffle=False,
@@ -59,13 +66,12 @@ class NCEDataset(IterableDataset):
         self, chunk_refs: List[Path]
     ) -> Generator[QAMDataSample, None, None]:
         for chunk_ref in chunk_refs:
-            yield from yield_sample_from_file(chunk_ref)
+            yield from self.read_chunk_fn(chunk_ref)
 
     def __iter__(self) -> Generator[QAMDataSample, None, None]:
-
-        # TODO:
-        # based on worker id, we have to assign a symbol to worker. Provided the worker count and number of symbols should be equal.
-        # since we cannot shuffle within a symbol's shards, we shouldn't shuffle within the shards, since it was written serially, as per timesteps.
+        # NOTE: Serially written Timepoint shards is rewritten as
+        # QAMDataSample shards shuffled. So any worker can take any
+        # shards and read in any random order...
 
         files = list(self.base_dir.rglob(f"**/{self.split}*jsonl.gz"))[
             self.worker_id :: self.num_workers

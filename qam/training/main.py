@@ -8,7 +8,7 @@ import typer
 from ..modules.encoder import ConfEncoderWithClassificationHeads
 from ..modules.focal_loss import FocalLoss
 from ..utils import get_cfg
-from .data import NCEDataModule, reshard_if_needed
+from .data import QAMDataModule, reshard_if_needed
 from .train import QAMTrainer
 
 app = typer.Typer()
@@ -20,7 +20,13 @@ def pretrain(overrides: List[str] = []):
     cfg = get_cfg("train", overrides, "training")
     pl.seed_everything(cfg.experiment.seed)
 
-    # meta = reshard_if_needed(cfg.symbols, cfg.trainer.devices, cfg.data.num_workers, cfg.data.batch_size)
+    meta = reshard_if_needed(
+        cfg.symbols_info, cfg.trainer.devices, cfg.data.num_workers, cfg.data.batch_size
+    )
+    cfg.trainer.val_check_interval = int(
+        meta.train_steps_count * cfg.experiment.validation_frequency
+    )
+    cfg.trainer.limit_train_batches = meta.train_steps_count
 
     model = ConfEncoderWithClassificationHeads(**cfg.model)
 
@@ -42,6 +48,6 @@ def pretrain(overrides: List[str] = []):
         loss_fn=FocalLoss(**cfg.loss),
         **cfg.pl_model
     )
-    data_module = NCEDataModule(**cfg.data)
+    data_module = QAMDataModule(**cfg.data)
 
     trainer.fit(pl_model, datamodule=data_module)

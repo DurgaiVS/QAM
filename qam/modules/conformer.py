@@ -78,6 +78,7 @@ class ConformerLayer(torch.nn.Module):
             input = residual + input
         return input
 
+    # TODO: change the key_padding_mask to attention_mask, which is most needed...
     def forward(
         self, input: torch.Tensor, key_padding_mask: Optional[torch.Tensor] = None
     ) -> tuple[torch.Tensor, torch.Tensor]:

@@ -16,7 +16,5 @@ LABEL_THRESHOLD_VALUE: float = 5.0
 DATA_DIR: str = f"{os.environ['QAM_ROOT']}/dataset"
 CONFIG_PATH: str = "./config"
 RESHARD_DIR_NAME = "resharded"
-SUBSET = {
-    "train": ["short", "long"],
-    "eval": ["dev", "test"],
-}
+SUB_SPLITS = ["train", "dev", "test"]
+SPLITS = {"train": ["train"], "eval": ["dev", "test"]}

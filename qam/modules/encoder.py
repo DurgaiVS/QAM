@@ -1,6 +1,7 @@
 import math
 from typing import Optional
 
+import hydra
 import torch
 from omegaconf import DictConfig
 
@@ -32,21 +33,15 @@ class ConfEncoderWithClassificationHeads(torch.nn.Module):
             layers.append(ConformerLayer(**encoder_params, downsampling_factor=2))
         for _ in range(num_layers):
             layers.append(ConformerLayer(**encoder_params))
+
+        # pooler layer, which pools from (B, S, D) -> (B, D)
+        # which will be applicable for the single output layer
         layers.append(ConformerLayer(**encoder_params, output_dim=1))
 
         self.conformer_layers = torch.nn.ModuleList(layers)
 
         self.classification_layer = torch.nn.Sequential(
-            *(
-                [torch.nn.Dropout(classification_layer.dropout)]
-                if classification_layer.dropout > 0
-                else []
-            ),
-            *(
-                [getattr(torch.nn, classification_layer.activation)]
-                if classification_layer.activation
-                else []
-            ),
+            *([hydra.utils.instantiate(pre_s) for pre_s in classification_layer]),
             torch.nn.Linear(encoder.input_dim, len(Classifier.__members__)),
         )
         self.classification_head_count: int = len(Classifier.__members__)
@@ -64,4 +59,4 @@ class ConfEncoderWithClassificationHeads(torch.nn.Module):
         for layer in self.conformer_layers:
             result, lengths = layer(result, lengths)
 
-        return self.classification_layer(result), lengths
+        return self.classification_layer(result.squeeze(1)), lengths
