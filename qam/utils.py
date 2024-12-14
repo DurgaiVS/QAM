@@ -172,28 +172,23 @@ class QAMTimePoint:
 
 @dataclass
 class DatasetMeta:
-    batch_size: int
     symbols: List[str]
+    batch_size: int
     gpus_count: int
     workers_per_gpu_count: int
-    train_samples_count: Optional[int] = None
-    dev_samples_count: Optional[int] = None
-    test_samples_count: Optional[int] = None
+    train_samples_count: int = 0
+    dev_samples_count: int = 0
+    test_samples_count: int = 0
     train_steps_count: Optional[int] = None
-    dev_steps_count: Optional[int] = None
-    test_steps_count: Optional[int] = None
 
     def is_aligning_with(self, other: "DatasetMeta") -> bool:
         return (
             (self.gpus_count % other.gpus_count == 0)
             and (self.workers_per_gpu_count % other.workers_per_gpu_count == 0)
-            and (
-                all([True if sym in self.symbols else False for sym in other.symbols])
-                and (len(self.symbols) == len(other.symbols))
-            )
+            and set(self.symbols) == set(other.symbols)
         )
 
-    def transfer_data_from(self, other: "DatasetMeta") -> "DatasetMeta":
+    def import_s_counts(self, other: "DatasetMeta") -> "DatasetMeta":
         for split in SUB_SPLITS:
             if getattr(self, f"{split}_samples_count") or (
                 getattr(other, f"{split}_samples_count") is None
@@ -202,6 +197,9 @@ class DatasetMeta:
             setattr(
                 self, f"{split}_samples_count", getattr(other, f"{split}_samples_count")
             )
+
+    def get_s_count(self, split: str) -> int:
+        return getattr(self, f"{split}_samples_count")
 
     def __repr__(self) -> str:
         return json.dumps(vars(self))
@@ -226,22 +224,12 @@ class DatasetMeta:
         return self
 
     def compute_max_safe_batches_count(self) -> "DatasetMeta":
-        for split in SUB_SPLITS:
-            if (getattr(self, f"{split}_steps_count") is not None) or (
-                getattr(self, f"{split}_samples_count") is None
-            ):
-                continue
+        if self.train_samples_count <= 0:
+            raise RuntimeError("Train samples count is not set.")
 
-            setattr(
-                self,
-                f"{split}_steps_count",
-                int(
-                    math.floor(
-                        getattr(self, f"{split}_samples_count")
-                        / (self.gpus_count * self.batch_size)
-                    )
-                ),
-            )
+        self.train_steps_count = int(
+            math.floor(self.train_samples_count / (self.gpus_count * self.batch_size))
+        )
 
         return self
 
@@ -513,19 +501,14 @@ class QAMFileWriter:
         self._open()
 
     def write(self, s: Union[str, QAMJSONableClass, List[QAMJSONableClass], List[str]]):
-        if isinstance(s, list):
-            for i in s:
-                if getattr(i, "to_str", None):
-                    self._file.write(i.to_str())
-                else:
-                    self._file.write(i)
-                self._file.write("\n")
+        if not isinstance(s, list):
+            s = [s]
 
-        else:
-            if getattr(s, "to_str", None):
-                self._file.write(s.to_str())
+        for i in s:
+            if getattr(i, "to_str", None):
+                self._file.write(i.to_str())
             else:
-                self._file.write(s)
+                self._file.write(i)
             self._file.write("\n")
 
         if self._should_wrap():
@@ -536,8 +519,6 @@ class QAMFileWriter:
         self._file.close()
         if _size == 0:
             os.remove(self._file.name)
-        else:
-            self._count += 1
 
     def __enter__(self):
         return self

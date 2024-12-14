@@ -78,7 +78,7 @@ class AlpacaSource(Source):
 
     def prepare_data_and_populate_q(self, symbol: str, data_q: "mp.Queue"):
         """
-        Properties#
+        Properties
         t   Timestamp in RFC-3339 format with nanosecond precision.
         o   Open price.
         h   High price.

@@ -1,7 +1,9 @@
-import torch
-from .position_encoder import PositionalEncoding
-from .transformer import MHSelfAModule
 from typing import Union
+
+import torch
+
+from ..pos_enc.sinusoidal_pos_enc import SinusoidalPosEnc
+from .transformer import MHSelfAModule
 
 
 class TransformerEncoderModule(torch.nn.Module):
@@ -18,7 +20,7 @@ class TransformerEncoderModule(torch.nn.Module):
         super().__init__()
         if with_pos_enc:
             self.transformer_stack = torch.nn.Sequential(
-                PositionalEncoding(embed_dim, max_seq_length, device=device),
+                SinusoidalPosEnc(embed_dim, max_seq_length, device=device),
                 *[
                     MHSelfAModule(embed_dim, num_heads, expansion_factor, device=device)
                     for _ in range(num_stacks)

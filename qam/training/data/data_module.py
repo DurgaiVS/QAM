@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 from ...constants import DATA_DIR, RESHARD_DIR_NAME
 from .dataset import QAMDataset
-from .utils import collate_fn, worker_init_fn
+from .utils import collate_fn
 
 
 class QAMDataModule(pl.LightningDataModule):
@@ -21,35 +21,39 @@ class QAMDataModule(pl.LightningDataModule):
         self._buffer_factor = buffer_factor
 
     def setup(self, stage: str) -> None:
-        self.train_dataset = QAMDataset(
-            os.path.join(DATA_DIR, RESHARD_DIR_NAME),
-            "train",
-            self._batch_size,
-            self._buffer_factor,
-            True,
-        )
 
-        self.val_dataset = [
-            QAMDataset(
-                os.path.join(DATA_DIR, s_name, RESHARD_DIR_NAME),
-                "dev",
+        if stage == "fit":
+            self.train_dataset = QAMDataset(
+                os.path.join(DATA_DIR, RESHARD_DIR_NAME),
+                "train",
                 self._batch_size,
                 self._buffer_factor,
+                True,
             )
-            for s_name, s_info in self.symbols.items()
-            if s_info["dev"]
-        ]
 
-        self.test_dataset = [
-            QAMDataset(
-                os.path.join(DATA_DIR, s_name, RESHARD_DIR_NAME),
-                "test",
-                self._batch_size,
-                self._buffer_factor,
-            )
-            for s_name, s_info in self.symbols.items()
-            if s_info["test"]
-        ]
+        if (stage == "validate") or (stage == "fit"):
+            self.val_dataset = [
+                QAMDataset(
+                    os.path.join(DATA_DIR, s_name, RESHARD_DIR_NAME),
+                    "dev",
+                    self._batch_size,
+                    self._buffer_factor,
+                )
+                for s_name, s_info in self.symbols.items()
+                if s_info["dev"]
+            ]
+
+        if (stage == "test") or (stage == "fit") or (stage == "predict"):
+            self.test_dataset = [
+                QAMDataset(
+                    os.path.join(DATA_DIR, s_name, RESHARD_DIR_NAME),
+                    "test",
+                    self._batch_size,
+                    self._buffer_factor,
+                )
+                for s_name, s_info in self.symbols.items()
+                if s_info["test"]
+            ]
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -58,7 +62,6 @@ class QAMDataModule(pl.LightningDataModule):
             pin_memory=True,
             collate_fn=collate_fn,
             num_workers=self._num_workers,
-            worker_init_fn=worker_init_fn,
         )
 
     def val_dataloader(self) -> List[DataLoader]:
@@ -69,7 +72,6 @@ class QAMDataModule(pl.LightningDataModule):
                 num_workers=self._num_workers,
                 pin_memory=True,
                 collate_fn=collate_fn,
-                worker_init_fn=worker_init_fn,
             )
             for ds in self.val_dataset
         ]
@@ -82,7 +84,6 @@ class QAMDataModule(pl.LightningDataModule):
                 num_workers=self._num_workers,
                 pin_memory=True,
                 collate_fn=collate_fn,
-                worker_init_fn=worker_init_fn,
             )
             for ds in self.test_dataset
         ]

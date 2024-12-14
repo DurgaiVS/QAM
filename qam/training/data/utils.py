@@ -1,7 +1,8 @@
-from typing import List
+from typing import List, Tuple
 
 import torch
 import torch.distributed as dist
+import torch.utils.data
 
 from ...constants import LABEL_THRESHOLD_VALUE, SUBSAMPLING_FACTOR
 from ...utils import Classifier, QAMDataBatch, QAMDataSample, QAMTimePoint
@@ -16,25 +17,31 @@ def collate_fn(data_batch: List[List[QAMDataSample]]) -> QAMDataBatch:
     return collated_batch.tensorize()
 
 
-def worker_init_fn(worker_id):
+def get_worker_info() -> Tuple[int, int]:
     """
-    Parameters
-    ----------
-    worker_id : ``int``
-        ID of the current local worker.
+    Returns the data worker id globally, and the global data worker
+    counts...
+
+    Returns
+    -------
+    Tuple[int, int]
+        Data worker id globally, Global data worker count
     """
     worker_info = torch.utils.data.get_worker_info()
-    dataset = worker_info.dataset
-    # `num_local_workers`: workers in each local GPU
-    num_local_workers: int = worker_info.num_workers
+    assert worker_info is not None, "Couldn't get the worker id..."
+    # `num_local_workers`: total number of workers in each local GPU
+    # `worker_id`: id of worker within each local GPU
+    num_local_workers, worker_id = worker_info.num_workers, worker_info.id
+    dist_rank, dist_world_size = 0, 1
 
     if dist.is_available() and dist.is_initialized():
-        dataset.dist_world_size = dist.get_world_size()
-        dataset.dist_rank = dist.get_rank()
+        dist_world_size = dist.get_world_size()
+        dist_rank = dist.get_rank()
 
     # `num_workers`: total number of workers across all the GPUs
-    dataset.num_workers = dataset.dist_world_size * num_local_workers
+    global_num_workers = dist_world_size * num_local_workers
 
     # `global_worker_id`: a uniq ID for a worker in global setting
-    global_worker_id = worker_id * dataset.dist_world_size + dataset.dist_rank
-    dataset.worker_id = global_worker_id
+    global_worker_id = worker_id * dist_world_size + dist_rank
+
+    return global_worker_id, global_num_workers

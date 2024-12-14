@@ -10,8 +10,8 @@ from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.utilities import rank_zero_only
 from torchmetrics.classification import MulticlassStatScores
 
-from ..training.data.utils import QAMDataSample
-from ..utils import Classifier, QAMFileWriter, defaultdict, find_available_filename
+from ...utils import Classifier, QAMFileWriter, defaultdict, find_available_filename
+from ..data.utils import QAMDataSample
 
 
 @dataclass

@@ -5,10 +5,10 @@ import hydra
 import torch
 from omegaconf import DictConfig
 
-from ..constants import MAX_SEQ_LEN, SAMPLE_DIM, SUBSAMPLING_FACTOR
-from ..utils import Classifier
-from .auto_pos_enc import AutoPosEncoder
-from .conformer import ConformerLayer
+from ...constants import MAX_SEQ_LEN, SAMPLE_DIM, SUBSAMPLING_FACTOR
+from ...utils import Classifier
+from ..nn.conformer import ConformerLayer
+from ..pos_enc.auto_pos_enc import AutoPosEncoder
 
 
 class ConfEncoderWithClassificationHeads(torch.nn.Module):

@@ -1,0 +1,2 @@
+_target_: qam.modules.focal_loss.FocalLoss
+gamma: 2

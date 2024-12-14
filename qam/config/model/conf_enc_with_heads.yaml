@@ -1,0 +1,21 @@
+_target_: qam.modules.model.conformer_encoder.ConfEncoderWithClassificationHeads
+encoder:
+  # _target_: torchaudio.models.Conformer
+  # 4x reduction for Conformer & 8x reduction for FastConformer
+  # input_dim is 512 for Conformer
+  # depthwise_conv_kernel_size is 31 for Conformer
+  # TODO: try ffn_dim also with 256
+  input_dim: 256
+  num_heads: 8
+  ffn_dim: 256
+  num_layers: 16
+  depthwise_conv_kernel_size: 9
+  dropout: 0.3
+  use_group_norm: false
+  convolution_first: false
+classification_layer:
+  # max of one of non-linear layer...may have 0...
+  # - _target_: torch.nn.SiLU
+  # - _target_: torch.nn.GELU
+  - _target_: torch.nn.Dropout
+    p: 0.3

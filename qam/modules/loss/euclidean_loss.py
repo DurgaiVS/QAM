@@ -1,6 +1,7 @@
 import torch
 
-class EuclideanLoss(torch.nn.modules.loss._Loss):
+
+class NormEuclideanLoss(torch.nn.modules.loss._Loss):
     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """
         Normalized eucledian distance in pytorch.
@@ -21,24 +22,34 @@ class EuclideanLoss(torch.nn.modules.loss._Loss):
         https://stats.stackexchange.com/questions/136232/definition-of-normalized-euclidean-distance/498753?noredirect=1#comment937825_498753
         """
         dim = 1
-        eps=1e-8
+        eps = 1e-8
 
         # to compute ned for two individual vectors e.g to compute a loss (NOT BATCHES/COLLECTIONS of vectorsc)
         if len(input.size()) == 1:
             # [K] -> [1]
             ned_2 = 0.5 * ((input - target).var() / (input.var() + target.var() + eps))
         # if the input is a (row) vector e.g. when comparing two batches of acts of D=1 like with scores right before sf
-        elif input.size() == torch.Size([input.size(0), 1]):  # note this special case is needed since var over dim=1 is nan (1 value has no variance).
+        elif input.size() == torch.Size(
+            [input.size(0), 1]
+        ):  # note this special case is needed since var over dim=1 is nan (1 value has no variance).
             # [B, 1] -> [B]
-            ned_2 = 0.5 * ((input - target)**2 / (input**2 + target**2 + eps)).squeeze()  # Squeeze important to be consistent with .var, otherwise tensors of different sizes come out without the user expecting it
+            ned_2 = (
+                0.5 * ((input - target) ** 2 / (input**2 + target**2 + eps)).squeeze()
+            )  # Squeeze important to be consistent with .var, otherwise tensors of different sizes come out without the user expecting it
         # common case is if input is a batch
         else:
             # e.g. [B, D] -> [B]
-            ned_2 = 0.5 * ((input - target).var(dim=dim) / (input.var(dim=dim) + target.var(dim=dim) + eps))
-        return ned_2 ** 0.5
+            ned_2 = 0.5 * (
+                (input - target).var(dim=dim)
+                / (input.var(dim=dim) + target.var(dim=dim) + eps)
+            )
+        return ned_2**0.5
+
 
 def nes_torch(x1, x2, dim=1, eps=1e-8):
     return 1 - ned_torch(x1, x2, dim, eps)
+
+
 """
 
 dist = (tensor1 - tensor2).pow(2).sum(3).sqrt()

@@ -2,8 +2,8 @@ from typing import Union
 
 import torch
 
-from ..utils import QAMDataBatch
-from .transf_encoder import TransformerEncoderModule
+from ...utils import QAMDataBatch
+from ..nn.transf_encoder import TransformerEncoderModule
 
 
 class NCEModel(torch.nn.Module):

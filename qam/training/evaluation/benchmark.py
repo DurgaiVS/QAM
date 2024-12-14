@@ -4,8 +4,8 @@ from omegaconf import DictConfig
 from pytorch_lightning.utilities import rank_zero_only
 from torchmetrics import ConfusionMatrix, StatScores
 
-from ..modules.encoder import ConfEncoderWithClassificationHeads
-from ..utils import Classifier, QAMDataBatch, QAMDataSample, defaultdict
+from ...modules.model.conformer_encoder import ConfEncoderWithClassificationHeads
+from ...utils import Classifier, QAMDataBatch, QAMDataSample, defaultdict
 from .utils import QAMInferenceResultsWriter, QAMOverallDataMetric
 
 

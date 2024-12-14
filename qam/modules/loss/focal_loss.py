@@ -1,22 +1,22 @@
+from typing import List, Union
+
 import torch
 
-from ..constants import PAD_ID
-from ..utils import Classifier
+from ...constants import PAD_ID
+from ...utils import Classifier
 
 
 class FocalLoss(torch.nn.Module):
     def __init__(
         self,
-        alpha: torch.Tensor,
         gamma: float,
-        grad_acc: int,
+        alpha: List[Union[int, float]] = [1.0] * len(Classifier),
         ignore_index: int = PAD_ID,
         softmax_dim: int = 2,
     ):
         super().__init__()
         self.alpha = alpha
         self.gamma = gamma
-        self.grad_acc = grad_acc
         self.ignore_index = ignore_index
         self.softmax_dim = softmax_dim
 
@@ -40,6 +40,4 @@ class FocalLoss(torch.nn.Module):
             )
             loss += tmp.sum()
 
-        loss = torch.true_divide(loss, (count * self.grad_acc))
-
-        return loss
+        return loss / count

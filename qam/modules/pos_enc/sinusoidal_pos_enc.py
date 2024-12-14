@@ -1,10 +1,9 @@
 import math
-from typing import Union
 
 import torch
 
 
-class PositionalEncoding(torch.nn.Module):
+class SinusoidalPosEnc(torch.nn.Module):
     def __init__(self, dim: int, max_length: int):
         """
         Args:

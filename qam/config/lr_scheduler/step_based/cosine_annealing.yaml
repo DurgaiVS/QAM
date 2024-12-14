@@ -1,0 +1,3 @@
+_target_: torch.optim.lr_scheduler.CosineAnnealingLR
+T_max: ??? # lr_refresh_epoch_count
+eta_min: 1e-10

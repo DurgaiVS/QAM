@@ -1,6 +1,8 @@
-import torch
-from .transformer import MHCrossAModule
 from typing import Union
+
+import torch
+
+from .transformer import MHCrossAModule
 
 
 class TransformerDecoderModule(torch.nn.Module):

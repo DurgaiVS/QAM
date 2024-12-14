@@ -8,7 +8,8 @@ from infinibatch.iterators import BucketedReadaheadBatchIterator
 from torch.utils.data import IterableDataset
 
 from ...constants import MAX_SEQ_LEN
-from ...utils import QAMDataSample, yield_sample_from_file
+from ...utils import QAMDataSample
+from .utils import get_worker_info
 
 
 class QAMDataset(IterableDataset):
@@ -28,11 +29,6 @@ class QAMDataset(IterableDataset):
         self.buffer_factor = buffer_factor
         self.seed = seed
         self.yielder = self.shuffled_yielder if shuffle else self.serial_yielder
-
-        self.dist_world_size = 1
-        self.dist_rank = 0
-        self.num_workers = 1
-        self.worker_id = 0
 
     def read_chunk_fn(self, filepath: Path) -> Generator[QAMDataSample, None, None]:
         with gzip.open(filepath, "rt") as f:
@@ -73,8 +69,9 @@ class QAMDataset(IterableDataset):
         # QAMDataSample shards shuffled. So any worker can take any
         # shards and read in any random order...
 
+        worker_id, num_workers = get_worker_info()
         files = list(self.base_dir.rglob(f"**/{self.split}*jsonl.gz"))[
-            self.worker_id :: self.num_workers
+            worker_id::num_workers
         ]
         random.shuffle(files)
 

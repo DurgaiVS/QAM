@@ -1,9 +1,11 @@
 from typing import List
 
+import hydra
 import pytorch_lightning as pl
 import torch
+from omegaconf import DictConfig
 from torchaudio.models import Conformer
-from torchmetrics import FBetaScore, Precision, Recall
+from torchmetrics import F1Score, Precision, Recall
 
 from ...utils import Classifier, QAMDataBatch
 
@@ -13,34 +15,26 @@ class QAMTrainer(pl.LightningModule):
         self,
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
-        loss_fn: torch.nn.modules.loss._Loss,
+        loss: torch.nn.modules.loss._Loss,
         lr_schs: List[torch.optim.lr_scheduler._LRScheduler],
         metric: str,
-        f_beta: float = 1.0,
+        f1score: F1Score,
+        precision: Precision,
+        recall: Recall,
         scheduler_interval: int = 1,
         scheduler_frequency: str = "epoch",
     ):
         super().__init__()
         self.model = model
         self.optimizer = optimizer
-        self.loss_fn = loss_fn
+        self.loss_fn = loss
         self.lr_schs = lr_schs
         self.metric = metric
+        self.f1score = f1score
+        self.precision = precision
+        self.recall = recall
         self.scheduler_interval = scheduler_interval
         self.scheduler_frequency = scheduler_frequency
-
-        self.f1score = FBetaScore(
-            task="multiclass",
-            beta=f_beta,
-            num_classes=len(Classifier.__members__),
-            average="macro",
-        )
-        self.precision = Precision(
-            task="multiclass", num_classes=len(Classifier.__members__), average="macro"
-        )
-        self.recall = Recall(
-            task="multiclass", num_classes=len(Classifier.__members__), average="macro"
-        )
 
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)
@@ -64,7 +58,7 @@ class QAMTrainer(pl.LightningModule):
 
         preds = self.model(frame_batch)
         loss = self.loss_fn(preds, label_batch)
-        self.log("train/loss", loss, on_epoch=True, on_step=True, sync_dist=True)
+        self.log("train/loss", loss, on_epoch=True, on_step=True)
 
         return loss
 
@@ -87,7 +81,6 @@ class QAMTrainer(pl.LightningModule):
             on_epoch=True,
             logger=True,
             prog_bar=True,
-            sync_dist=True,
         )
         return loss
 
@@ -110,6 +103,40 @@ class QAMTrainer(pl.LightningModule):
             on_epoch=True,
             logger=True,
             prog_bar=True,
-            sync_dist=True,
         )
         return loss
+
+    @classmethod
+    def from_cfg(
+        cls, cfg: DictConfig, model: torch.nn.Module, optimizer: torch.optim.Optimizer
+    ):
+
+        f1score = F1Score(
+            task="multiclass",
+            num_classes=len(Classifier.__members__),
+            average="none",
+        )
+        precision = Precision(
+            task="multiclass", num_classes=len(Classifier.__members__), average="none"
+        )
+        recall = Recall(
+            task="multiclass", num_classes=len(Classifier.__members__), average="none"
+        )
+
+        lr_schs = [
+            hydra.utils.instantiate(cfg.step_based, optimizer=optimizer),
+            hydra.utils.instantiate(cfg.metric_based, optimizer=optimizer),
+        ]
+
+        return cls(
+            model=model,
+            optimizer=optimizer,
+            loss=hydra.utils.instantiate(cfg.loss),
+            lr_schs=lr_schs,
+            metric=cfg.metric,
+            f1score=f1score,
+            precision=precision,
+            recall=recall,
+            scheduler_interval=cfg.scheduler_interval,
+            scheduler_frequency=cfg.scheduler_frequency,
+        )

@@ -1,7 +1,7 @@
 import torch
 from omegaconf import OmegaConf
 
-from qam.modules.encoder import ConfEncoderWithClassificationHeads
+from qam.modules.model.conformer_encoder import ConfEncoderWithClassificationHeads
 
 hparams = OmegaConf.load("")
 model = ConfEncoderWithClassificationHeads(**hparams.model)

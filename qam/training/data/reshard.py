@@ -79,7 +79,7 @@ def _is_reshard_required(
     sub_split: str,
     meta: DatasetMeta,
 ) -> bool:
-    metafile_path = os.path.join(reshard_dir, f"meta-{sub_split}.json")
+    metafile_path = os.path.join(reshard_dir, f"meta.json")
 
     if not os.path.exists(metafile_path):
         if os.path.exists(reshard_dir):
@@ -91,7 +91,7 @@ def _is_reshard_required(
         return True
 
     resharded_meta = DatasetMeta.from_file(metafile_path)
-    meta.transfer_data_from(resharded_meta)
+    meta.import_s_counts(resharded_meta)
 
     if resharded_meta.is_aligning_with(meta):
         return False
@@ -125,7 +125,7 @@ def _resharder_for_eval(
     ctx = mp.get_context("fork")
 
     reshard_dir = os.path.join(DATA_DIR, s_name, RESHARD_DIR_NAME)
-    meta = DatasetMeta(batch_size, [s_name], gpus_count, worker_per_gpu_count)
+    meta = DatasetMeta([s_name], batch_size, gpus_count, worker_per_gpu_count)
     reshard_req = _is_reshard_required(reshard_dir, sub_split, meta)
 
     if not reshard_req:
@@ -135,11 +135,7 @@ def _resharder_for_eval(
     shards = path_resolver(sub_split, os.path.join(DATA_DIR, s_name, "processed"))
     shards.sort()
 
-    samples_count = (
-        _get_total_samplescount(shards)
-        if (getattr(meta, f"{sub_split}_samples_count") is None)
-        else getattr(meta, f"{sub_split}_samples_count")
-    )
+    samples_count = meta.get_s_count(sub_split) or _get_total_samplescount(shards)
     samples_per_shard = get_samplescount_per_shard(samples_count, req_total_shards)
 
     p = ctx.Process(target=_reader, args=(shards, data_q))
@@ -158,7 +154,7 @@ def _resharder_for_eval(
     )
 
     meta.compute_max_safe_batches_count().write_to(
-        os.path.join(reshard_dir, f"meta-{sub_split}.json")
+        os.path.join(reshard_dir, f"meta.json")
     )
     p.join()
 
@@ -232,14 +228,15 @@ def resharder_for_train(
 
     reshard_dir = os.path.join(DATA_DIR, RESHARD_DIR_NAME)
     req_total_shards = gpus_count * worker_per_gpu_count
-    ctx = mp.get_context("fork")
-    procs: List[mp.Process] = []
     meta = DatasetMeta(
         batch_size,
         [s_name for s_name, s_info in symbols_info.items() if s_info["train"]],
         gpus_count,
         worker_per_gpu_count,
     )
+
+    procs: List[mp.Process] = []
+    ctx = mp.get_context("fork")
 
     reshard_req = _is_reshard_required(reshard_dir, sub_split, meta)
     if not reshard_req:
@@ -256,11 +253,7 @@ def resharder_for_train(
         sub_shards.sort()
         shards.append(sub_shards)
 
-    samples_count = (
-        _samples_counter_for_train(shards)
-        if (getattr(meta, f"{sub_split}_samples_count") is None)
-        else getattr(meta, f"{sub_split}_samples_count")
-    )
+    samples_count = meta.get_s_count(sub_split) or _samples_counter_for_train(shards)
     samples_per_shard = get_samplescount_per_shard(samples_count, req_total_shards)
 
     for sub_shards in shards:
@@ -280,7 +273,7 @@ def resharder_for_train(
     )
 
     meta.compute_max_safe_batches_count().write_to(
-        os.path.join(reshard_dir, f"meta-{sub_split}.json")
+        os.path.join(reshard_dir, f"meta.json")
     )
     for p in procs:
         p.join()
@@ -296,13 +289,15 @@ def reshard_if_needed(
     if not isinstance(gpus_count, int):
         gpus_count = len(gpus_count)
 
-    gl = globals()
     ctx = mp.get_context("fork")
     procs: List[mp.Process] = []
-    dataset_meta = DatasetMeta(batch_size, list(symbols_info.keys()))
+    fn_as_per_splits = {
+        "train": resharder_for_train,
+        "eval": resharder_for_eval,
+    }
 
     for split, sub_splits in SPLITS:
-        resharder = gl.get(f"resharder_for_{split}")
+        resharder = fn_as_per_splits[split]
         for sub_split in sub_splits:
             if sub_split not in only_selective_splits:
                 continue
@@ -316,7 +311,6 @@ def reshard_if_needed(
                     worker_per_gpu_count,
                     batch_size,
                 ),
-                daemon=False,
             )
             p.start()
 
@@ -326,10 +320,7 @@ def reshard_if_needed(
         p.join()
 
     meta = DatasetMeta.from_file(
-        os.path.join(DATA_DIR, RESHARD_DIR_NAME, "meta-train.json")
+        os.path.join(DATA_DIR, RESHARD_DIR_NAME, "meta.json")
     ).compute_max_safe_batches_count()
 
-    assert (
-        meta.train_steps_count is not None
-    ), "Expected meta to be updated by train steps count, but not..."
     return meta

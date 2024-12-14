@@ -1,0 +1,17 @@
+- _target_: pytorch_lightning.callbacks.ModelCheckpoint
+  dirpath: ${experiment.output_dir}/checkpoints
+  filename: "{epoch}-{${experiment.metric_to_track}:.2f}"
+  save_top_k: ${experiment.save_top_k}
+  save_last: true
+  verbose: true
+  monitor: ${experiment.metric_to_track}
+  mode: ${experiment.metric_mode}
+  every_n_train_steps: ${trainer.val_check_interval}
+- _target_: pytorch_lightning.callbacks.LearningRateMonitor
+- _target_: pytorch_lightning.callbacks.ModelSummary
+  max_depth: 2
+- _target_: pytorch_lightning.callbacks.EarlyStopping
+  monitor: ${experiment.metric_to_track}
+  patience: ${experiment.patience}
+  verbose: true
+  mode: ${experiment.metric_mode}
