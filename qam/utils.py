@@ -18,6 +18,7 @@ from typing import (
     List,
     Optional,
     Protocol,
+    Tuple,
     Union,
     overload,
     runtime_checkable,
@@ -81,13 +82,56 @@ QAMTimePointTuple = namedtuple(
 
 
 @overload
-def get_samplescount_per_shard(samples_count: int, shards_count: int) -> int: ...
+def get_samples_and_extrarounder_count_per_shard(
+    samples_count: int, shards_count: int
+) -> int: ...
 
 
-def get_samplescount_per_shard(
+def get_samples_and_extrarounder_count_per_shard(
     samples_count: int, gpus_count: int, workers_per_gpu_count: int = 1
-) -> int:
-    return int(math.floor(samples_count / (gpus_count * workers_per_gpu_count)))
+) -> Tuple[int, int]:
+    return (
+        samples_count // (gpus_count * workers_per_gpu_count),
+        samples_count % (gpus_count * workers_per_gpu_count),
+    )
+
+
+def find_available_filename(
+    base_path: str, filename_stem: str, extension: str, add_v: bool = True
+) -> str:
+    """
+    Returns a new filename that is not already present in the specified directory.
+
+    Parameters
+    -----------
+    base_path: `str`
+        The `base_path` parameter is a string representing the directory in which the new file
+        will be created.
+    filename_stem: `str`
+        The `filename_stem` parameter is a string representing the stem of the new filename.
+    extension: `str`
+        The `extension` parameter is a string representing the extension of the new filename.
+    add_v: `bool`
+        The `add_v` parameter is a boolean that specifies whether to add a 'v' prefix to the
+        filename.
+
+    Returns
+    -------
+    new_path: `str`
+        The `new_path` parameter is a string representing the path to the new file.
+    """
+    if not os.path.isdir(base_path):
+        os.mkdir(base_path)
+
+    i = 0
+    while True:
+        new_path = os.path.join(
+            base_path, f"{filename_stem}-{'v' if add_v else ''}{i}.{extension}"
+        )
+        if not os.path.isfile(new_path):
+            return new_path
+
+        i += 1
 
 
 @runtime_checkable
@@ -103,6 +147,11 @@ class Classifier(Enum):
     LOW: int = auto()
     VERY_LOW: int = auto()
     NO_IMP: int = auto()
+
+    @classmethod
+    def get_labels_name(cls) -> Generator[str, None, None]:
+        for label in cls:
+            yield label.name.lower()
 
 
 @dataclass
@@ -179,7 +228,7 @@ class DatasetMeta:
     train_samples_count: int = 0
     dev_samples_count: int = 0
     test_samples_count: int = 0
-    train_steps_count: Optional[int] = None
+    train_steps_count: int = None
 
     def is_aligning_with(self, other: "DatasetMeta") -> bool:
         return (
@@ -188,7 +237,7 @@ class DatasetMeta:
             and set(self.symbols) == set(other.symbols)
         )
 
-    def import_s_counts(self, other: "DatasetMeta") -> "DatasetMeta":
+    def import_sample_counts(self, other: "DatasetMeta") -> "DatasetMeta":
         for split in SUB_SPLITS:
             if getattr(self, f"{split}_samples_count") or (
                 getattr(other, f"{split}_samples_count") is None
@@ -198,14 +247,14 @@ class DatasetMeta:
                 self, f"{split}_samples_count", getattr(other, f"{split}_samples_count")
             )
 
-    def get_s_count(self, split: str) -> int:
+    def get_sample_count(self, split: str) -> int:
         return getattr(self, f"{split}_samples_count")
 
     def __repr__(self) -> str:
-        return json.dumps(vars(self))
+        return self.to_str()
 
     def to_str(self) -> str:
-        return json.dumps(vars(self))
+        return json.dumps(self.to_dict())
 
     def to_dict(self) -> Dict:
         return vars(self)
@@ -224,9 +273,6 @@ class DatasetMeta:
         return self
 
     def compute_max_safe_batches_count(self) -> "DatasetMeta":
-        if self.train_samples_count <= 0:
-            raise RuntimeError("Train samples count is not set.")
-
         self.train_steps_count = int(
             math.floor(self.train_samples_count / (self.gpus_count * self.batch_size))
         )
@@ -251,6 +297,10 @@ class QAMDataSample:
 
     def to_str(self) -> str:
         return json.dumps(vars(self))
+
+    # TODO: Check whether named tuples are serializable...
+    def to_bytes(self) -> bytes:
+        return self.to_str().encode()
 
     @classmethod
     def from_str(cls, s) -> "QAMDataSample":
@@ -286,7 +336,7 @@ class QAMDataSample:
         return len(self.frame)
 
     @classmethod
-    def from_list(
+    def from_timepoint_list(
         cls, samples: List[QAMTimePoint], label: Classifier
     ) -> "QAMDataSample":
         qam_data_tuples = []
@@ -337,13 +387,16 @@ class QAMDataSample:
             return Classifier.LOW
 
     @classmethod
-    def init_sample(
+    def init_from_history_and_future_timepoints(
         cls, data_samples: List[QAMTimePoint], trend_samples: List[QAMTimePoint]
     ) -> "QAMDataSample":
         label = cls.get_label(data_samples[-1], trend_samples)
-        return cls.from_list(trend_samples, label)
+        return cls.from_timepoint_list(trend_samples, label)
 
 
+# NOTE: The reason for not using `yield_sample_from_file` function below is
+#       because, we have to generate a sample from all possible timepoints
+#       serially available, like, the last `K`samples...
 def yield_sample_from_serially_sorted_files(
     paths: List[Path],
 ) -> Generator[QAMDataSample, None, None]:
@@ -357,13 +410,15 @@ def yield_sample_from_serially_sorted_files(
                 if len(samples) < (MAX_SEQ_LEN + TREND_UPDATE_SEQ_LEN):
                     continue
 
-                yield QAMDataSample.init_sample(
+                yield QAMDataSample.init_from_history_and_future_timepoints(
                     samples[:MAX_SEQ_LEN], samples[MAX_SEQ_LEN:]
                 )
                 samples = samples[STRIDE_LENGTH:]
 
     if len(samples) > MAX_SEQ_LEN:
-        yield QAMDataSample.init_sample(samples[:MAX_SEQ_LEN], samples[MAX_SEQ_LEN:])
+        yield QAMDataSample.init_from_history_and_future_timepoints(
+            samples[:MAX_SEQ_LEN], samples[MAX_SEQ_LEN:]
+        )
 
 
 def yield_sample_from_file(path: Path) -> Generator[QAMDataSample, None, None]:
@@ -376,13 +431,15 @@ def yield_sample_from_file(path: Path) -> Generator[QAMDataSample, None, None]:
             if len(samples) < (MAX_SEQ_LEN + TREND_UPDATE_SEQ_LEN):
                 continue
 
-            yield QAMDataSample.init_sample(
+            yield QAMDataSample.init_from_history_and_future_timepoints(
                 samples[:MAX_SEQ_LEN], samples[MAX_SEQ_LEN:]
             )
             samples = samples[STRIDE_LENGTH:]
 
     if len(samples) > MAX_SEQ_LEN:
-        yield QAMDataSample.init_sample(samples[:MAX_SEQ_LEN], samples[MAX_SEQ_LEN:])
+        yield QAMDataSample.init_from_history_and_future_timepoints(
+            samples[:MAX_SEQ_LEN], samples[MAX_SEQ_LEN:]
+        )
 
 
 @dataclass
@@ -397,14 +454,14 @@ class QAMDataBatch:
             self.labels = torch.stack(self.labels).to(torch.long)
         return self
 
-    def to(self, device) -> "QAMDataBatch":
-        self.frames = self.frames.to(device)
-        self.labels = self.labels.to(device)
+    def to(self, *args, **kwargs) -> "QAMDataBatch":
+        self.frames = self.frames.to(*args, **kwargs)
+        self.labels = self.labels.to(*args, **kwargs)
         return self
 
-    def cuda(self, device) -> "QAMDataBatch":
-        self.frames = self.frames.cuda(device)
-        self.labels = self.labels.cuda(device)
+    def cuda(self, *args, **kwargs) -> "QAMDataBatch":
+        self.frames = self.frames.cuda(*args, **kwargs)
+        self.labels = self.labels.cuda(*args, **kwargs)
         return self
 
     def cpu(self) -> "QAMDataBatch":
@@ -441,6 +498,44 @@ class QAMDataBatch:
 
 
 class QAMFileWriter:
+    """
+    ITNFileWriter is used to write the data into the files in the ITN format. It can write the data to many shards
+    based on the size per shard or the count per shard. Either full path or base directory, filename stem and extension
+    should be provided. If the size per file is provided, then the data will be written to the file until the size
+    reaches the provided size. If the count per file is provided, then the data will be written to the file until the
+    count reaches the provided count. If the extra one rounder is provided, then the count will be decremented by one
+    and the extra one rounder will be added to the count. The file will be written in gzip format. The file will be
+    closed when the object is deleted or when the close method is called. The object can be used as a context manager.
+    Eg:
+    ```python
+    with ITNFileWriter(
+        base_dir="data",
+        filename_stem="sample",
+        extension="json",
+        count_per_file=24,
+        extra_one_rounder=4,
+    ) as writer:
+        ...
+    ```
+    The first 4 files will have 25 samples(writes) and the remaining files will have 24 samples(writes).
+
+    Args:
+        full_path (Optional[str], optional): The full path of the file to be written.
+        base_dir (Optional[str], optional): The base directory where the files will be stored.
+        filename_stem (Optional[str], optional): The stem of the filename.
+        extension (Optional[str], optional): The extension of the file.
+        size_per_file (Optional[float], optional): The size of the file in bytes.
+        count_per_file (Optional[int], optional): Number of lines(or writes in case of data groups. Each write will insert N sub samples) per file.
+        extra_one_rounder (Optional[int], optional): The extra one rounder to be added. This will be used only when the count per file is provided.
+        writer_mode (str, optional): The mode in which the file should be opened. Either 't' or 'b'. Defaults to 't', where,
+            't': text mode
+            'b': binary mode
+
+    Raises:
+        AttributeError: If the size_per_file or count_per_file or full_path is not provided.
+        AttributeError: If the full_path or base_dir, filename_stem, extension is not provided.
+    """
+
     def __init__(
         self,
         full_path: Optional[str] = None,
@@ -450,6 +545,7 @@ class QAMFileWriter:
         size_per_file: Optional[float] = None,
         count_per_file: Optional[int] = None,
         extra_one_rounder: Optional[int] = None,
+        writer_mode: str = "t",
     ):
         if not (full_path or (base_dir and filename_stem and extension)):
             raise AttributeError(
@@ -461,15 +557,23 @@ class QAMFileWriter:
                 "Specify either `size_per_file` in bytes or `count_per_file` when initialising"
             )
 
+        if writer_mode not in ("t", "b"):
+            raise AttributeError("Only 't' or 'b' are supported for the writer_mode")
+
         self.full_path = full_path
         self.base_dir = base_dir
         self.filename_stem = filename_stem
         self.extension = extension
         self.size_per_file = size_per_file
         self.count_per_file = count_per_file
-        self.extra_one_rounder = extra_one_rounder
+        self.extra_one_rounder = (
+            extra_one_rounder
+            if isinstance(extra_one_rounder, int) and (extra_one_rounder > 0)
+            else None
+        )
         self._files_counter = 0
         self._count = 0
+        self._mode = writer_mode
 
         if count_per_file:
             self._should_wrap = self._should_wrap_count
@@ -477,6 +581,11 @@ class QAMFileWriter:
             self._should_wrap = self._should_wrap_size
         else:
             self._should_wrap = lambda: False
+
+        if writer_mode == "b":
+            self._new_line_char = b"\n"
+        else:
+            self._new_line_char = "\n"
 
         self._open()
 
@@ -487,7 +596,7 @@ class QAMFileWriter:
                 if self.full_path
                 else f"{self.base_dir}/{self.filename_stem}-{self._files_counter:04d}.{self.extension}"
             ),
-            "wt",
+            f"w{self._mode}",
         )
 
         if self.count_per_file and self.extra_one_rounder:
@@ -509,12 +618,15 @@ class QAMFileWriter:
                 self._file.write(i.to_str())
             else:
                 self._file.write(i)
-            self._file.write("\n")
+            self._file.write(self._new_line_char)
 
         if self._should_wrap():
             self._wrap_up_and_open_new()
 
     def close(self):
+        if self._file.closed:
+            return
+
         _size = self._file.tell()
         self._file.close()
         if _size == 0:
@@ -534,8 +646,7 @@ class QAMFileWriter:
         return self._file.tell() >= self.size_per_file
 
     def __del__(self):
-        if not self._file.closed:
-            self._file.close()
+        self.close()
 
 
 def find_available_filename(

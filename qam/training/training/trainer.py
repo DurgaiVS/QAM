@@ -4,10 +4,10 @@ import hydra
 import pytorch_lightning as pl
 import torch
 from omegaconf import DictConfig
-from torchaudio.models import Conformer
-from torchmetrics import F1Score, Precision, Recall
 
-from ...utils import Classifier, QAMDataBatch
+from ...constants import PAD_ID
+from ...utils import QAMDataBatch
+from ..utils import QAMMetric
 
 
 class QAMTrainer(pl.LightningModule):
@@ -17,10 +17,9 @@ class QAMTrainer(pl.LightningModule):
         optimizer: torch.optim.Optimizer,
         loss: torch.nn.modules.loss._Loss,
         lr_schs: List[torch.optim.lr_scheduler._LRScheduler],
-        metric: str,
-        f1score: F1Score,
-        precision: Precision,
-        recall: Recall,
+        metric_name: str,
+        metric: QAMMetric,
+        grad_acc: int = 1,
         scheduler_interval: int = 1,
         scheduler_frequency: str = "epoch",
     ):
@@ -30,11 +29,21 @@ class QAMTrainer(pl.LightningModule):
         self.loss_fn = loss
         self.lr_schs = lr_schs
         self.metric = metric
-        self.f1score = f1score
-        self.precision = precision
-        self.recall = recall
+        self.metric_name = metric_name
+
+        self.grad_acc = grad_acc
         self.scheduler_interval = scheduler_interval
         self.scheduler_frequency = scheduler_frequency
+
+        self.validation_step = self.eval_step
+        # self.on_validation_epoch_start = self.on_eval_epoch_start
+        self.on_validation_epoch_end = self.on_eval_epoch_end
+        self.on_validation_end = self.on_eval_end
+
+        self.test_step = self.eval_step
+        # self.on_test_epoch_start = self.on_eval_epoch_start
+        self.on_test_epoch_end = self.on_eval_epoch_end
+        self.on_test_end = self.on_eval_end
 
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)
@@ -45,83 +54,108 @@ class QAMTrainer(pl.LightningModule):
             lr_schs.append(
                 {
                     "scheduler": each,
-                    "monitor": self.metric,
+                    "monitor": self.metric_name,
                     "interval": self.scheduler_interval,
                     "frequency": self.scheduler_frequency,
                 }
             )
         return [self.optimizer], lr_schs
 
-    def training_step(self, batch: QAMDataBatch, batch_idx: int):
+    def training_step(self, batch: QAMDataBatch, batch_idx: int) -> torch.Tensor:
         frame_batch = batch.frames
         label_batch = batch.labels
 
-        preds = self.model(frame_batch)
+        preds, _ = self.model(frame_batch)
         loss = self.loss_fn(preds, label_batch)
-        self.log("train/loss", loss, on_epoch=True, on_step=True)
+        self.log(
+            "train/loss", loss, on_epoch=True, on_step=True, logger=True, prog_bar=True
+        )
 
-        return loss
+        return loss / self.grad_acc
 
-    def validation_step(self, batch: QAMDataBatch, batch_idx: int):
-        frame_batch = batch.frames
-        label_batch = batch.labels
+    def eval_step(
+        self, batch: QAMDataBatch, batch_idx: int, dataloader_idx: int = 0
+    ) -> torch.Tensor:
+        preds, _ = self.model(batch.frames)
+        return preds
 
-        preds = self.model(frame_batch)
-        loss = self.loss_fn(preds, label_batch)
+    def on_eval_batch_end(
+        self,
+        prefix: str,
+        outputs: torch.Tensor,
+        batch: QAMDataBatch,
+        batch_idx: int,
+        dataloader_idx=0,
+    ):
+        mask = batch.labels != PAD_ID
+        active_labels, active_logits = batch.labels[mask], outputs[mask]
 
-        logs = {
-            "val/loss": loss,
-            "val/f1": self.f1score(preds, label_batch),
-            "val/precision": self.precision(preds, label_batch),
-            "val/recall": self.recall(preds, label_batch),
-        }
-        self.log_dict(
-            logs,
-            on_step=False,
+        loss = self.loss_fn(active_logits, active_labels)
+        self.log(
+            f"{prefix}/loss",
+            loss,
             on_epoch=True,
+            on_step=True,
             logger=True,
             prog_bar=True,
         )
+
+        stats = self.metric(active_logits, active_labels)
+        for s_name, s_val, is_prim in stats.walk_through():
+            self.log(
+                f"{prefix}/{s_name}",
+                s_val,
+                logger=True,
+                prog_bar=is_prim,
+                add_dataloader_idx=False,
+            )
+            # NOTE: For evaluation, seperate dataloaders for seperate symbols, so a batch will be of
+            #       same symbols...
+            self.log(
+                f"{prefix}_{batch.symbols[0]}/{s_name}",
+                s_val,
+                logger=True,
+                add_dataloader_idx=False,
+            )
+
         return loss
 
-    def test_step(self, batch: QAMDataBatch, batch_idx: int):
-        frame_batch = batch.frames
-        label_batch = batch.labels
+    def on_eval_epoch_end(self):
+        # Log confusion matrix to `self.logger.log_image` here...
+        pass
 
-        preds = self.model(frame_batch)
-        loss = self.loss_fn(preds, label_batch)
+    def on_eval_end(self):
+        self.metric.reset()
 
-        logs = {
-            "val/loss": loss,
-            "val/f1": self.f1score(preds, label_batch),
-            "val/precision": self.precision(preds, label_batch),
-            "val/recall": self.recall(preds, label_batch),
-        }
-        self.log_dict(
-            logs,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-            prog_bar=True,
+    def on_validation_batch_end(
+        self,
+        outputs: torch.Tensor,
+        batch: QAMDataBatch,
+        batch_index: int,
+        dataloader_idx=0,
+    ) -> torch.Tensor:
+        return self.on_eval_batch_end(
+            "val", outputs, batch, batch_index, dataloader_idx
         )
-        return loss
+
+    def on_test_batch_end(
+        self,
+        outputs: torch.Tensor,
+        batch: QAMDataBatch,
+        batch_index: int,
+        dataloader_idx=0,
+    ) -> torch.Tensor:
+        return self.on_eval_batch_end(
+            "test", outputs, batch, batch_index, dataloader_idx
+        )
 
     @classmethod
     def from_cfg(
         cls, cfg: DictConfig, model: torch.nn.Module, optimizer: torch.optim.Optimizer
     ):
 
-        f1score = F1Score(
-            task="multiclass",
-            num_classes=len(Classifier.__members__),
-            average="none",
-        )
-        precision = Precision(
-            task="multiclass", num_classes=len(Classifier.__members__), average="none"
-        )
-        recall = Recall(
-            task="multiclass", num_classes=len(Classifier.__members__), average="none"
-        )
+        loss = hydra.utils.instantiate(cfg.loss)
+        metric = QAMMetric(cfg.loss.num_classes)
 
         lr_schs = [
             hydra.utils.instantiate(cfg.step_based, optimizer=optimizer),
@@ -131,12 +165,10 @@ class QAMTrainer(pl.LightningModule):
         return cls(
             model=model,
             optimizer=optimizer,
-            loss=hydra.utils.instantiate(cfg.loss),
+            loss=loss,
             lr_schs=lr_schs,
-            metric=cfg.metric,
-            f1score=f1score,
-            precision=precision,
-            recall=recall,
+            metric=metric,
+            metric_name=cfg.metric_name,
             scheduler_interval=cfg.scheduler_interval,
             scheduler_frequency=cfg.scheduler_frequency,
         )

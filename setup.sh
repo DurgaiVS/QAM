@@ -1,7 +1,7 @@
 #!/bin/bash
 
 PWD=$pwd
-cd "$(realpath "$(dirname "$0")")" || exit 0
+cd "$(realpath "$(dirname "$0")")" || exit 2
 
 if [[ ! -n $(command -v poetry) ]]; then
     curl -sSL https://install.python-poetry.org > ./get-poetry.py
@@ -20,4 +20,4 @@ pre-commit install
 
 sudo apt-get install libssl-dev libboost-all-dev
 
-cd $PWD
+cd $PWD || exit 1

@@ -13,7 +13,7 @@ from ...constants import DATA_DIR, RESHARD_DIR_NAME, SPLITS, SUB_SPLITS
 from ...utils import (
     DatasetMeta,
     QAMFileWriter,
-    get_samplescount_per_shard,
+    get_samples_and_extrarounder_count_per_shard,
     yield_sample_from_serially_sorted_files,
 )
 
@@ -33,7 +33,7 @@ def _get_total_samplescount(
 
 def _reader(shards: List[str], data_q: "mp.Queue"):
     for sample in yield_sample_from_serially_sorted_files(shards):
-        data_q.put(sample)
+        data_q.put(sample.to_bytes())
 
     data_q.put(None)
 
@@ -52,22 +52,22 @@ def _writer(
     workers_done = 0
     _fc = 0
 
-    with QAMFileWriter(**kwargs) as itn_writer:
+    with QAMFileWriter(**kwargs) as writer:
         while True:
-            grp = data_q.get()
+            data = data_q.get()
 
-            if grp is None:
+            if data is None:
                 workers_done += 1
                 if workers_done == readers_count:
                     break
                 else:
                     continue
 
-            itn_writer.write(grp)
+            writer.write(data)
 
-            if itn_writer._files_counter != _fc:
+            if writer._files_counter != _fc:
                 pbar.update()
-                _fc = itn_writer._files_counter
+                _fc = writer._files_counter
                 if _fc == total_shards_req:
                     break
 
@@ -91,7 +91,7 @@ def _is_reshard_required(
         return True
 
     resharded_meta = DatasetMeta.from_file(metafile_path)
-    meta.import_s_counts(resharded_meta)
+    meta.import_sample_counts(resharded_meta)
 
     if resharded_meta.is_aligning_with(meta):
         return False
@@ -135,8 +135,10 @@ def _resharder_for_eval(
     shards = path_resolver(sub_split, os.path.join(DATA_DIR, s_name, "processed"))
     shards.sort()
 
-    samples_count = meta.get_s_count(sub_split) or _get_total_samplescount(shards)
-    samples_per_shard = get_samplescount_per_shard(samples_count, req_total_shards)
+    samples_count = meta.get_sample_count(sub_split) or _get_total_samplescount(shards)
+    samples_per_shard, extra_one_rounder = get_samples_and_extrarounder_count_per_shard(
+        samples_count, req_total_shards
+    )
 
     p = ctx.Process(target=_reader, args=(shards, data_q))
     p.start()
@@ -151,6 +153,8 @@ def _resharder_for_eval(
         filename_stem=sub_split,
         extension="jsonl.gz",
         count_per_file=samples_per_shard,
+        extra_one_rounder=extra_one_rounder,
+        writer_mode="b",
     )
 
     meta.compute_max_safe_batches_count().write_to(
@@ -161,7 +165,7 @@ def _resharder_for_eval(
 
 def resharder_for_eval(
     sub_split: str,
-    symbols_info: Dict[str, Dict[str, bool]],
+    symbols: Dict[str, Optional[Dict[str, bool]]],
     gpus_count: Union[int, List[int]],
     worker_per_gpu_count: int,
     batch_size: int,
@@ -173,8 +177,8 @@ def resharder_for_eval(
     procs: List[mp.Process] = []
     ctx = mp.get_context("fork")
     req_total_shards = gpus_count * worker_per_gpu_count
-    for s_name, s_info in symbols_info.items():
-        if not s_info[sub_split]:
+    for s_name, s_info in symbols.items():
+        if (s_info is not None) and (sub_split not in s_info):
             continue
 
         p = ctx.Process(
@@ -217,7 +221,7 @@ def _samples_counter_for_train(shards: List[List[Path]]) -> int:
 
 def resharder_for_train(
     sub_split: str,
-    symbols_info: Dict[str, Dict[str, bool]],
+    symbols: Dict[str, Optional[Dict[str, bool]]],
     gpus_count: Union[int, List[int]],
     worker_per_gpu_count: int,
     batch_size: int,
@@ -229,8 +233,12 @@ def resharder_for_train(
     reshard_dir = os.path.join(DATA_DIR, RESHARD_DIR_NAME)
     req_total_shards = gpus_count * worker_per_gpu_count
     meta = DatasetMeta(
+        [
+            s_name
+            for s_name, s_info in symbols.items()
+            if ((s_info is None) or ("train" in s_info))
+        ],
         batch_size,
-        [s_name for s_name, s_info in symbols_info.items() if s_info["train"]],
         gpus_count,
         worker_per_gpu_count,
     )
@@ -245,16 +253,20 @@ def resharder_for_train(
     shards: List[List[Path]] = []
     data_q = ctx.Queue(-1)
 
-    for s_name, s_info in symbols_info.items():
-        if not s_info["train"]:
+    for s_name, s_info in symbols.items():
+        if (s_info is not None) and ("train" not in s_info):
             continue
 
         sub_shards = path_resolver("train", os.path.join(DATA_DIR, s_name, "processed"))
         sub_shards.sort()
         shards.append(sub_shards)
 
-    samples_count = meta.get_s_count(sub_split) or _samples_counter_for_train(shards)
-    samples_per_shard = get_samplescount_per_shard(samples_count, req_total_shards)
+    samples_count = meta.get_sample_count(sub_split) or _samples_counter_for_train(
+        shards
+    )
+    samples_per_shard, _ = get_samples_and_extrarounder_count_per_shard(
+        samples_count, req_total_shards
+    )
 
     for sub_shards in shards:
         p = ctx.Process(target=_reader, args=(sub_shards, data_q))
@@ -270,6 +282,7 @@ def resharder_for_train(
         filename_stem=sub_split,
         extension="jsonl.gz",
         count_per_file=samples_per_shard,
+        writer_mode="b",
     )
 
     meta.compute_max_safe_batches_count().write_to(
@@ -280,7 +293,7 @@ def resharder_for_train(
 
 
 def reshard_if_needed(
-    symbols_info: Dict[str, Dict[str, bool]],
+    symbols: Dict[str, Optional[Dict[str, bool]]],
     gpus_count: Union[int, List[int]],
     worker_per_gpu_count: int,
     batch_size: int,
@@ -306,7 +319,7 @@ def reshard_if_needed(
                 target=resharder,
                 args=(
                     sub_split,
-                    symbols_info,
+                    symbols,
                     gpus_count,
                     worker_per_gpu_count,
                     batch_size,

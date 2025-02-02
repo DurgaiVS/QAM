@@ -46,7 +46,7 @@ class ConformerLayer(torch.nn.Module):
 
         self.self_attn_layer_norm = torch.nn.LayerNorm(input_dim)
         self.self_attn = torch.nn.MultiheadAttention(
-            input_dim, num_heads, dropout=dropout
+            input_dim, num_heads, dropout=dropout, batch_first=True
         )
         self.self_attn_dropout = torch.nn.Dropout(dropout)
 
@@ -115,7 +115,7 @@ class ConformerLayer(torch.nn.Module):
         if self.pooler:
             return x, (
                 torch.ceil(key_padding_mask / 2)
-                if self.downsampler and key_padding_mask
+                if self.downsampler and (key_padding_mask is not None)
                 else key_padding_mask
             )
 
@@ -126,7 +126,7 @@ class ConformerLayer(torch.nn.Module):
         x = self.final_layer_norm(x)
         return x, (
             torch.ceil(key_padding_mask / 2)
-            if self.downsampler and key_padding_mask
+            if self.downsampler and (key_padding_mask is not None)
             else key_padding_mask
         )
 

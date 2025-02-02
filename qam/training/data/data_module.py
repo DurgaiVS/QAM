@@ -40,7 +40,7 @@ class QAMDataModule(pl.LightningDataModule):
                     self._buffer_factor,
                 )
                 for s_name, s_info in self.symbols.items()
-                if s_info["dev"]
+                if (s_info is None) or ("dev" in s_info)
             ]
 
         if (stage == "test") or (stage == "fit") or (stage == "predict"):
@@ -52,7 +52,7 @@ class QAMDataModule(pl.LightningDataModule):
                     self._buffer_factor,
                 )
                 for s_name, s_info in self.symbols.items()
-                if s_info["test"]
+                if (s_info is None) or ("test" in s_info)
             ]
 
     def train_dataloader(self) -> DataLoader:

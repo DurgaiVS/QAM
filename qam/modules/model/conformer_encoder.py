@@ -21,7 +21,9 @@ class ConfEncoderWithClassificationHeads(torch.nn.Module):
     ) -> None:
         super().__init__()
 
-        self.embedding = AutoPosEncoder(input_dim, encoder.input_dim)
+        # Since conformer doesn't need positional encodings, as it
+        # can very well capture spatial features better...
+        # self.embedding = AutoPosEncoder(input_dim, encoder.input_dim)
         self.seq_len = seq_len
 
         down_samplers_count = int(math.log2(SUBSAMPLING_FACTOR))
@@ -47,16 +49,17 @@ class ConfEncoderWithClassificationHeads(torch.nn.Module):
         self.classification_head_count: int = len(Classifier.__members__)
 
     def forward(
-        self, inputs: torch.Tensor, lengths: Optional[torch.Tensor] = None
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        self, inputs: torch.Tensor, ip_lengths: Optional[torch.Tensor] = None
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         _, seq_len, _ = inputs.shape
         if seq_len != self.seq_len:
             raise RuntimeError(
                 f"Expected sequence length is {self.seq_len}, but got an input with seq len {seq_len}. Try padding the input."
             )
 
-        result = self.embedding(inputs)
+        # result = self.embedding(inputs)
+        result = inputs
         for layer in self.conformer_layers:
-            result, lengths = layer(result, lengths)
+            result, ip_lengths = layer(result, ip_lengths)
 
-        return self.classification_layer(result.squeeze(1)), lengths
+        return self.classification_layer(result.squeeze(1)), ip_lengths

@@ -9,7 +9,7 @@ readme = "README.md"
 qam = "qam.main:app"
 
 [tool.poetry.dependencies]
-python = "~3.11.0"
+python = "~3.12.0"
 filterpy = ">=1.4"
 hydra-core = ">=1.3"
 requests = "~2"
@@ -17,10 +17,10 @@ torchmetrics = ">=1.2.0"
 tensorboard = ">=2.10"
 pytorch-lightning = "~2.3"
 typer = {extras = ["all"], version = "*"}
-torch = {url = "https://download.pytorch.org/whl/cu121/torch-2.3.1%2Bcu121-cp311-cp311-linux_x86_64.whl#sha256=925e34af0905062a48b4f82d0e6656341ad4d626834a6a8245ef4eaee5375c98"}
+torch = {url = "https://download.pytorch.org/whl/cu121/torch-2.5.0%2Bcu121-cp312-cp312-linux_x86_64.whl"}
 torchaudio = "*"
 infinibatch = "*"
-torchrl = "0.3.1"
+torchrl = "*"
 yfinance = "0.2.37"
 
 [tool.poetry.dev-dependencies]
