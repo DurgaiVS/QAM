@@ -67,7 +67,7 @@ def evaluate(overrides: List[str] = []):
     if cfg.trainer.devices == -1:
         cfg.trainer.devices = torch.cuda.device_count()
 
-    meta = reshard_if_needed(
+    reshard_if_needed(
         cfg.symbols,
         cfg.trainer.devices,
         cfg.data.num_workers,

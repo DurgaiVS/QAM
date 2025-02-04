@@ -97,10 +97,12 @@ def get_samples_and_extrarounder_count_per_shard(
 
 
 def find_available_filename(
-    base_path: str, filename_stem: str, extension: str, add_v: bool = True
+    base_path: str, filename_stem: str, extension: str, add_v: bool = False
 ) -> str:
     """
     Returns a new filename that is not already present in the specified directory.
+    First check for the availability of the basic name, if it is not available, then
+    try with version numbers.
 
     Parameters
     -----------
@@ -123,7 +125,11 @@ def find_available_filename(
     if not os.path.isdir(base_path):
         os.mkdir(base_path)
 
-    i = 0
+    new_path = os.path.join(base_path, f"{filename_stem}.{extension}")
+    if not os.path.isfile(new_path):
+        return new_path
+
+    i = 1
     while True:
         new_path = os.path.join(
             base_path, f"{filename_stem}-{'v' if add_v else ''}{i}.{extension}"
@@ -647,23 +653,6 @@ class QAMFileWriter:
 
     def __del__(self):
         self.close()
-
-
-def find_available_filename(
-    base_path: str, filename_stem: str, extension: str, add_v: bool = True
-) -> str:
-    if not os.path.isdir(base_path):
-        os.mkdir(base_path)
-
-    i = 0
-    while True:
-        new_path = os.path.join(
-            base_path, f"{filename_stem}-{'v' if add_v else ''}{i}.{extension}"
-        )
-        if not os.path.isfile(new_path):
-            return new_path
-
-        i += 1
 
 
 def get_cfg(config_name: str, overrides: List[str], job_name: str) -> DictConfig:

@@ -4,8 +4,7 @@ import torch
 import torch.distributed as dist
 import torch.utils.data
 
-from ...constants import LABEL_THRESHOLD_VALUE, SUBSAMPLING_FACTOR
-from ...utils import Classifier, QAMDataBatch, QAMDataSample, QAMTimePoint
+from ...utils import QAMDataBatch, QAMDataSample
 
 
 def collate_fn(data_batch: List[List[QAMDataSample]]) -> QAMDataBatch:

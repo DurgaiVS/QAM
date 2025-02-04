@@ -13,3 +13,17 @@
 **Beta v2**
 - During training, try to add a mask randomly, like, 30% of input...
 - Work on QAMTrainer, QAMPredictor to ensure clean and optimized code...
+- Data directory structure
+    - dataset
+        - resharded
+            # train samples shuffled and resharded across all symbols...
+        - symbol-a
+            - raw
+            - train
+            - dev
+            - test
+        - symbol-b
+            - raw
+            - train
+            - dev
+            - test

@@ -1,10 +1,8 @@
-import json
 import logging
 import os
-import random
 import shutil
 from pathlib import Path
-from typing import Dict, Generator, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 import torch.multiprocessing as mp
 from tqdm import tqdm
@@ -76,7 +74,6 @@ def _writer(
 
 def _is_reshard_required(
     reshard_dir: str,
-    sub_split: str,
     meta: DatasetMeta,
 ) -> bool:
     metafile_path = os.path.join(reshard_dir, f"meta.json")
@@ -124,9 +121,9 @@ def _resharder_for_eval(
 
     ctx = mp.get_context("fork")
 
-    reshard_dir = os.path.join(DATA_DIR, s_name, RESHARD_DIR_NAME)
+    reshard_dir = os.path.join(DATA_DIR, s_name, sub_split, RESHARD_DIR_NAME)
     meta = DatasetMeta([s_name], batch_size, gpus_count, worker_per_gpu_count)
-    reshard_req = _is_reshard_required(reshard_dir, sub_split, meta)
+    reshard_req = _is_reshard_required(reshard_dir, meta)
 
     if not reshard_req:
         return
