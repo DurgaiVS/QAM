@@ -1,13 +1,6 @@
-import os
-import threading
 from typing import List
 
 import typer
-
-from ..constants import DATA_DIR
-from ..utils import get_cfg
-from .from_alpaca import AlpacaSource
-from .from_yfinance import yf_downloader
 
 app = typer.Typer()
 
@@ -19,6 +12,13 @@ def from_yfinance(overrides: List[str] = []):
     start: YYYY-MM-DD
     end: YYYY-MM-DD
     """
+
+    import os
+    import threading
+
+    from ..constants import DATA_DIR
+    from ..utils import get_cfg
+    from .from_yfinance import yf_downloader
 
     cfg = get_cfg("preprocess", overrides, "data_preparation")
 
@@ -63,6 +63,9 @@ def from_alpaca(overrides: List[str]):
     start: YYYY-MM-DD[T00:00:00]
     end: YYYY-MM-DD[T00:00:00]
     """
+
+    from ..utils import get_cfg
+    from .from_alpaca import AlpacaSource
 
     cfg = get_cfg("preprocess", overrides, "data_preparation")
 

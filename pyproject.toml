@@ -8,28 +8,46 @@ readme = "README.md"
 [tool.poetry.scripts]
 qam = "qam.main:app"
 
+[project.optional-dependencies]
+cuda = [
+    "torch (^2.3.0+cu121)",
+]
+
 [tool.poetry.dependencies]
-python = "~3.12.0"
-filterpy = ">=1.4"
-hydra-core = ">=1.3"
+python = "^3.11.0"
+filterpy = "^1.4"
+hydra-core = "^1.3"
 requests = "~2"
-torchmetrics = ">=1.2.0"
-tensorboard = ">=2.10"
+torchmetrics = "^1.2.0"
+tensorboard = "^2.10"
 pytorch-lightning = "~2.3"
 typer = {extras = ["all"], version = "*"}
-torch = {url = "https://download.pytorch.org/whl/cu121/torch-2.5.0%2Bcu121-cp312-cp312-linux_x86_64.whl"}
+torch = [
+	{ version = "^2.3.0", markers = "extra == 'cuda'", source = "pytorch-cuda" },
+	{ version = "^2.3.0", markers = "extra != 'cuda'", source = "pytorch-cpu" },
+]
 torchaudio = "*"
 infinibatch = "*"
 torchrl = "*"
 yfinance = "0.2.37"
 
 [tool.poetry.dev-dependencies]
-pylint = ">=3.0"
-pre-commit = ">=3.0"
-black = ">=24.0"
+pylint = "^3.0"
+pre-commit = "^3.0"
+black = "^24.0"
 isort = ">5.0"
-clang-format = ">=18.0"
+clang-format = "^18.0"
+
+[[tool.poetry.source]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
+
+[[tool.poetry.source]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu121"
+priority = "explicit"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core^1.0.0"]
 build-backend = "poetry.core.masonry.api"

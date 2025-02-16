@@ -14,7 +14,7 @@ from .utils import QAMInferenceResultsWriter
 
 
 # TODO: Update the Dataset Predictor and Results writer to up-to-date.
-class QAMPredictor(pl.LightningModule):
+class SSLPredictor(pl.LightningModule):
     def __init__(
         self,
         model: ConfEncoderWithClassificationHeads,
@@ -60,7 +60,7 @@ class QAMPredictor(pl.LightningModule):
         return preds
 
     @classmethod
-    def from_cfg(cls, cfg: DictConfig) -> "QAMPredictor":
+    def from_cfg(cls, cfg: DictConfig) -> "SSLPredictor":
         with TemporaryDirectory() as tmpdir:
             with tarfile.open(cfg.checkpoint.path, "r:gz") as tar:
                 tar.extractall(tmpdir)

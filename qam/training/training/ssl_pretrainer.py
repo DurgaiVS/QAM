@@ -10,7 +10,7 @@ from ...utils import QAMDataBatch
 from ..utils import QAMMetric
 
 
-class QAMTrainer(pl.LightningModule):
+class SSLPreTrainer(pl.LightningModule):
     def __init__(
         self,
         model: torch.nn.Module,
@@ -101,14 +101,15 @@ class QAMTrainer(pl.LightningModule):
         )
 
         stats = self.metric(active_logits, active_labels)
-        for s_name, s_val, is_prim in stats.walk_through():
+        for s_name, s_val, is_primary in stats.walk_through():
             self.log(
                 f"{prefix}/{s_name}",
                 s_val,
                 logger=True,
-                prog_bar=is_prim,
+                prog_bar=is_primary,
                 add_dataloader_idx=False,
             )
+
             # NOTE: For evaluation, seperate dataloaders for seperate symbols, so a batch will be of
             #       same symbols...
             self.log(
@@ -155,7 +156,7 @@ class QAMTrainer(pl.LightningModule):
     ):
 
         loss = hydra.utils.instantiate(cfg.loss)
-        metric = QAMMetric(cfg.loss.num_classes)
+        qam_metric = QAMMetric(cfg.loss.num_classes)
 
         lr_schs = [
             hydra.utils.instantiate(cfg.step_based, optimizer=optimizer),
@@ -167,7 +168,7 @@ class QAMTrainer(pl.LightningModule):
             optimizer=optimizer,
             loss=loss,
             lr_schs=lr_schs,
-            metric=metric,
+            metric=qam_metric,
             metric_name=cfg.metric_name,
             scheduler_interval=cfg.scheduler_interval,
             scheduler_frequency=cfg.scheduler_frequency,

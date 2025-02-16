@@ -70,7 +70,7 @@ class QAMDataset(IterableDataset):
         # shards and read in any random order...
 
         worker_id, num_workers = get_worker_info()
-        files = list(self.base_dir.rglob(f"**/{self.split}*jsonl.gz"))[
+        files = list(self.base_dir.rglob(f"{self.split}*jsonl.gz"))[
             worker_id::num_workers
         ]
         random.shuffle(files)

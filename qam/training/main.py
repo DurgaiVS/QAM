@@ -1,24 +1,25 @@
 from typing import List
 
-import hydra
-import pytorch_lightning as pl
-import torch
 import typer
-from pytorch_lightning.callbacks import ModelCheckpoint
-
-from ..constants import MAX_SEQ_LEN
-from ..modules.model.conformer_encoder import ConfEncoderWithClassificationHeads
-from ..utils import Classifier, get_cfg
-from .data import QAMDataModule, reshard_if_needed
-from .evaluation import QAMPredictor
-from .training import QAMTrainer
-from .utils import get_best_model_path, wrap_up_predictor, wrap_up_trainer
 
 app = typer.Typer()
 
 
 @app.command()
 def ssl_pretrain(overrides: List[str] = []):
+    """ """
+
+    import hydra
+    import pytorch_lightning as pl
+    import torch
+    from pytorch_lightning.callbacks import ModelCheckpoint
+
+    from ..constants import MAX_SEQ_LEN
+    from ..modules.model.conformer_encoder import ConfEncoderWithClassificationHeads
+    from ..utils import Classifier, get_cfg
+    from .data import QAMDataModule, reshard_if_needed
+    from .training.ssl_pretrainer import SSLPreTrainer
+    from .utils import get_best_model_path, wrap_up_trainer
 
     cfg = get_cfg("train", overrides, "ssl_pretraining")
     pl.seed_everything(cfg.experiment.seed)
@@ -48,7 +49,7 @@ def ssl_pretrain(overrides: List[str] = []):
     trainer = pl.Trainer(**cfg.trainer, callbacks=callbacks)
 
     cfg.pl_model.loss.num_classes = len(Classifier)
-    pl_model = QAMTrainer.from_cfg(cfg.pl_model, model, optim)
+    pl_model = SSLPreTrainer.from_cfg(cfg.pl_model, model, optim)
     data_module = QAMDataModule(**cfg.data)
 
     trainer.fit(pl_model, datamodule=data_module)
@@ -60,7 +61,17 @@ def ssl_pretrain(overrides: List[str] = []):
 
 
 @app.command
-def evaluate(overrides: List[str] = []):
+def ssl_evaluate(overrides: List[str] = []):
+    """ """
+
+    import hydra
+    import pytorch_lightning as pl
+    import torch
+
+    from ..utils import get_cfg
+    from .data import QAMDataModule, reshard_if_needed
+    from .evaluation.ssl_predictor import SSLPredictor
+    from .utils import wrap_up_predictor
 
     cfg = get_cfg("benchmark", overrides, "evaluation")
 
@@ -78,7 +89,7 @@ def evaluate(overrides: List[str] = []):
         hydra.utils.instantiate(callback) for callback in cfg.experiment.callbacks
     ]
     data_module = QAMDataModule(**cfg.data)
-    predictor = QAMPredictor.from_cfg(cfg)
+    predictor = SSLPredictor.from_cfg(cfg)
 
     trainer = pl.Trainer(**cfg.trainer, callbacks=callbacks)
     trainer.predict(predictor, datamodule=data_module)

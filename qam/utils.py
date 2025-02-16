@@ -30,7 +30,8 @@ from omegaconf import DictConfig
 
 from .constants import (
     CONFIG_PATH,
-    LABEL_THRESHOLD_VALUE,
+    LABEL_MAX_DIFF_PERCENT,
+    LABEL_MIN_INCREMENT_PERCENT,
     MAX_SEQ_LEN,
     STRIDE_LENGTH,
     SUB_SPLITS,
@@ -65,6 +66,7 @@ class defaultdict(dict):
             super().__missing__(key)
 
 
+TimePointTuple = Tuple[int, float, float, float, float, int, int, float, int]
 QAMTimePointTuple = namedtuple(
     "QAMTimePointTuple",
     [
@@ -150,14 +152,14 @@ class QAMJSONableClass(Protocol):
 class Classifier(Enum):
     VERY_HIGH: int = 0
     HIGH: int = auto()
+    NO_IMP: int = auto()
     LOW: int = auto()
     VERY_LOW: int = auto()
-    NO_IMP: int = auto()
 
     @classmethod
     def get_labels_name(cls) -> Generator[str, None, None]:
         for label in cls:
-            yield label.name.lower()
+            yield label.name
 
 
 @dataclass
@@ -191,16 +193,19 @@ class QAMTimePoint:
         return (self.symbol != other.symbol) or (self.time != other.time)
 
     def __repr__(self) -> str:
-        return json.dumps(vars(self))
+        return self.to_str()
+
+    def to_bytes(self) -> bytes:
+        return self.to_str().encode()
 
     def to_str(self) -> str:
-        return json.dumps(vars(self))
+        return json.dumps(self.to_dict())
 
     def to_dict(self) -> Dict:
         return vars(self)
 
-    def as_timepoint_tuple(self) -> QAMTimePointTuple:
-        return QAMTimePointTuple(
+    def as_tuple(self) -> TimePointTuple:
+        return (
             hash(self.symbol),
             self.open,
             self.close,
@@ -298,8 +303,8 @@ class DatasetMeta:
 @dataclass
 class QAMDataSample:
     symbol: str
-    frame: Union[List[QAMTimePointTuple], torch.Tensor]
-    label: Union[int, torch.Tensor]
+    frame: Union[List[TimePointTuple], torch.Tensor]
+    label: Union[str, torch.Tensor]
 
     def to_str(self) -> str:
         return json.dumps(vars(self))
@@ -314,8 +319,8 @@ class QAMDataSample:
 
     def tolist(self) -> "QAMDataSample":
         if isinstance(self.frame, torch.Tensor):
-            self.frame = self.frame.tolist()
-            self.label = self.label.item()
+            self.frame = self.frame.cpu().tolist()
+            self.label = Classifier(self.label.cpu().item())
 
     def tensorize(self) -> "QAMDataSample":
         if not isinstance(self.frame, torch.Tensor):
@@ -351,46 +356,62 @@ class QAMDataSample:
         for sample in samples:
             assert (
                 symbol == sample.symbol
-            ), f"Unexpected symbol {sample.symbol} encountered, expected {symbol}. Cannot create a sample out of different sample's timepoint."
+            ), f"Unexpected symbol {sample.symbol} encountered, expected {symbol}. Cannot create a sample out of different symbol's timepoint."
 
-            qam_data_tuples.append(sample.as_timepoint_tuple())
+            qam_data_tuples.append(sample.as_tuple())
 
-        return cls(symbol, qam_data_tuples, label.value)
+        return cls(symbol, qam_data_tuples, label.name)
 
-    @classmethod
+    @staticmethod
     def get_label(
         entry_point: QAMTimePoint, trend_samples: List[QAMTimePoint]
     ) -> Classifier:
-        max_val, min_val = entry_point, entry_point
-        graph_diff_max, graph_diff_min = None, None
+        """ """
+        # NOTE: If the trend moves up beyond this absolute difference percentage,
+        #       we will consider using `High` or `VeryHigh` label...
+
+        #       This is due to the brokerage and extra charges we'll get from our
+        #       profit, like, if we get 2% profit, after paying all the charges
+        #       when selling we might make a loss. So having a buffer region, and
+        #       only if the trend goes above that, we'll buy/sell.
+        max_val_entry = entry_point.close + (
+            entry_point.close * LABEL_MIN_INCREMENT_PERCENT
+        )
+
+        # NOTE: Minimum fluctuation absolute percentage from the last entry value, to consider
+        #       for the `Very...` label.
+        max_val_border_for_very = entry_point.close + (
+            entry_point.close * LABEL_MAX_DIFF_PERCENT
+        )
+        min_val_border_for_very = entry_point.close - (
+            entry_point.close * LABEL_MAX_DIFF_PERCENT
+        )
+
+        max_val, min_val = entry_point.close, entry_point.close
 
         for trend_sample in trend_samples:
-            if trend_sample > max_val:
-                max_val = trend_sample
-            if trend_sample < min_val:
-                min_val = trend_sample
+            if trend_sample.high > max_val:
+                max_val = trend_sample.high
+            if trend_sample.low < min_val:
+                min_val = trend_sample.low
 
-        if max_val != entry_point:
-            graph_diff_max = max_val.low - entry_point.low
-        elif min_val != entry_point:
-            graph_diff_min = min_val.low - entry_point.low
+        if max_val >= max_val_entry:
+            if max_val > max_val_border_for_very:
+                return Classifier.VERY_HIGH
+            else:
+                return Classifier.HIGH
+
+        elif min_val < entry_point.close:
+            if min_val < min_val_border_for_very:
+                return Classifier.VERY_LOW
+            else:
+                return Classifier.LOW
+
         else:
             logging.warning(
                 "Encountered a case where the trend is neither moving up nor moving down."
             )
             return Classifier.NO_IMP
-
-        if graph_diff_max and (graph_diff_max > LABEL_THRESHOLD_VALUE):
-            return Classifier.VERY_HIGH
-
-        elif graph_diff_min and (graph_diff_min < -LABEL_THRESHOLD_VALUE):
-            return Classifier.VERY_LOW
-
-        elif graph_diff_max and (graph_diff_max < LABEL_THRESHOLD_VALUE):
-            return Classifier.HIGH
-
-        elif graph_diff_min and (graph_diff_min > -LABEL_THRESHOLD_VALUE):
-            return Classifier.LOW
 
     @classmethod
     def init_from_history_and_future_timepoints(
@@ -400,7 +421,7 @@ class QAMDataSample:
         return cls.from_timepoint_list(trend_samples, label)
 
 
-# NOTE: The reason for not using `yield_sample_from_file` function below is
+# NOTE: The reason for not using `yield_sample_from_file` in the below fn is
 #       because, we have to generate a sample from all possible timepoints
 #       serially available, like, the last `K`samples...
 def yield_sample_from_serially_sorted_files(
@@ -730,8 +751,6 @@ class WorkerPool:
             asyncio.run(self.fn(*(self.args + arg), **(self.kwargs | kwarg)))
 
     def backend_thread(self):
-        w_count = 0
-
         for arg, kwarg in self.mapper():
             t = threading.Thread(
                 target=self.fn, args=(self.args + arg), kwargs=(self.kwargs | kwarg)
@@ -739,7 +758,7 @@ class WorkerPool:
             t.start()
             self._w.append(t)
 
-            if len(self._w) > self.worker_count:
+            if len(self._w) == self.worker_count:
                 self.wait_and_pop()
 
     def backend_process(self):
@@ -752,5 +771,5 @@ class WorkerPool:
             p.start()
             self._w.append(p)
 
-            if len(self._w) > self.worker_count:
+            if len(self._w) == self.worker_count:
                 self.wait_and_pop()

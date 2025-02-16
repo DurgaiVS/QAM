@@ -160,7 +160,7 @@ class QAMStats:
         """
         for metric, m_fn in METRICS_NAME_AND_FN.items():
             for l_name in Classifier.get_labels_name():
-                yield f"{l_name}_{metric}", m_fn
+                yield f"{l_name.lower()}_{metric}", m_fn
 
     @staticmethod
     def get_all_attributes_name_and_default_val() -> (
