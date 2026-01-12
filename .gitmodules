@@ -1,6 +1,6 @@
-[submodule "qam/utils/deps/kalman"]
-	path = qam/utils/deps/kalman
+[submodule "src/thirdparty/kalman"]
+	path = src/thirdparty/kalman
 	url = https://github.com/mherb/kalman.git
-[submodule "qam/utils/deps/eigen"]
-	path = qam/utils/deps/eigen
+[submodule "src/thirdparty/eigen"]
+	path = src/thirdparty/eigen
 	url = https://gitlab.com/libeigen/eigen.git

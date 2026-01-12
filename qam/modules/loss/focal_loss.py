@@ -4,7 +4,7 @@ import torch
 from omegaconf import DictConfig
 
 from ...constants import PAD_ID
-from ...utils import Classifier
+from ...utils import TradeTrend
 
 
 class FocalLoss(torch.nn.modules.loss._Loss):

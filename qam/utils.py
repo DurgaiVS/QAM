@@ -149,7 +149,7 @@ class QAMJSONableClass(Protocol):
     def to_dict(self) -> Dict: ...
 
 
-class Classifier(Enum):
+class TradeTrend(Enum):
     VERY_HIGH: int = 0
     HIGH: int = auto()
     NO_IMP: int = auto()
@@ -304,7 +304,7 @@ class DatasetMeta:
 class QAMDataSample:
     symbol: str
     frame: Union[List[TimePointTuple], torch.Tensor]
-    label: Union[str, torch.Tensor]
+    label: Union[TradeTrend, torch.Tensor]
 
     def to_str(self) -> str:
         return json.dumps(vars(self))
@@ -320,12 +320,12 @@ class QAMDataSample:
     def tolist(self) -> "QAMDataSample":
         if isinstance(self.frame, torch.Tensor):
             self.frame = self.frame.cpu().tolist()
-            self.label = Classifier(self.label.cpu().item())
+            self.label = TradeTrend(self.label.cpu().item())
 
     def tensorize(self) -> "QAMDataSample":
         if not isinstance(self.frame, torch.Tensor):
             self.frame = torch.tensor(self.frame).to(torch.float32)
-            self.label = torch.tensor(self.label).to(torch.long)
+            self.label = torch.tensor(self.label.value).to(torch.long)
         return self
 
     def to(self, *args, **kwargs) -> "QAMDataSample":
@@ -348,7 +348,7 @@ class QAMDataSample:
 
     @classmethod
     def from_timepoint_list(
-        cls, samples: List[QAMTimePoint], label: Classifier
+        cls, samples: List[QAMTimePoint], label: TradeTrend
     ) -> "QAMDataSample":
         qam_data_tuples = []
         symbol = samples[0].symbol
@@ -360,12 +360,12 @@ class QAMDataSample:
 
             qam_data_tuples.append(sample.as_tuple())
 
-        return cls(symbol, qam_data_tuples, label.name)
+        return cls(symbol, qam_data_tuples, label)
 
     @staticmethod
     def get_label(
         entry_point: QAMTimePoint, trend_samples: List[QAMTimePoint]
-    ) -> Classifier:
+    ) -> TradeTrend:
         """ """
         # NOTE: If the trend moves up beyond this absolute difference percentage,
         #       we will consider using `High` or `VeryHigh` label...
@@ -397,21 +397,21 @@ class QAMDataSample:
 
         if max_val >= max_val_entry:
             if max_val > max_val_border_for_very:
-                return Classifier.VERY_HIGH
+                return TradeTrend.VERY_HIGH
             else:
-                return Classifier.HIGH
+                return TradeTrend.HIGH
 
         elif min_val < entry_point.close:
             if min_val < min_val_border_for_very:
-                return Classifier.VERY_LOW
+                return TradeTrend.VERY_LOW
             else:
-                return Classifier.LOW
+                return TradeTrend.LOW
 
         else:
             logging.warning(
                 "Encountered a case where the trend is neither moving up nor moving down."
             )
-            return Classifier.NO_IMP
+            return TradeTrend.NO_IMP
 
     @classmethod
     def init_from_history_and_future_timepoints(
@@ -474,26 +474,31 @@ class QAMDataBatch:
     symbols: List[str] = field(default_factory=list)
     frames: Union[torch.Tensor, List[torch.Tensor]] = field(default_factory=list)
     labels: Union[torch.Tensor, List[torch.Tensor]] = field(default_factory=list)
+    lengths: Union[torch.Tensor, List[int]] = field(default_factory=list)
 
     def tensorize(self) -> "QAMDataBatch":
         if not isinstance(self.frames, torch.Tensor):
             self.frames = torch.stack(self.frames).to(torch.float32)
             self.labels = torch.stack(self.labels).to(torch.long)
+            self.lengths = torch.tensor(self.lengths).to(torch.long)
         return self
 
     def to(self, *args, **kwargs) -> "QAMDataBatch":
         self.frames = self.frames.to(*args, **kwargs)
         self.labels = self.labels.to(*args, **kwargs)
+        self.lengths = self.lengths.to(*args, **kwargs)
         return self
 
     def cuda(self, *args, **kwargs) -> "QAMDataBatch":
         self.frames = self.frames.cuda(*args, **kwargs)
         self.labels = self.labels.cuda(*args, **kwargs)
+        self.lengths = self.lengths.cuda(*args, **kwargs)
         return self
 
     def cpu(self) -> "QAMDataBatch":
         self.frames = self.frames.cpu()
         self.labels = self.labels.cpu()
+        self.lengths = self.lengths.cpu()
         return self
 
     def __len__(self) -> int:
@@ -501,8 +506,10 @@ class QAMDataBatch:
 
     def extend(self, samples: List[QAMDataSample]) -> "QAMDataBatch":
         for sample in samples:
+            self.symbols.append(sample.symbol)
             self.frames.append(sample.frame)
             self.labels.append(sample.label)
+            self.lengths.append(len(sample))
         return self
 
     def __getitem__(self, index: int) -> QAMDataSample:
@@ -510,6 +517,7 @@ class QAMDataBatch:
             self.symbols[index],
             self.frames[index],
             self.labels[index],
+            self.lengths[index],
         )
 
     @classmethod
@@ -520,7 +528,7 @@ class QAMDataBatch:
             self.symbols.append(sample.symbol)
             self.frames.append(sample.frame)
             self.labels.append(sample.label)
-
+            self.lengths.append(len(sample))
         return self.tensorize()
 
 
@@ -687,10 +695,10 @@ class WorkerPool:
     def __init__(
         self,
         fn: Callable[..., None],
-        mappable: Union[List[Any], Dict[str, List[Any]]],
         worker_count: int,
         args: List[Any] = [],
         kwargs: Dict[str, Any] = {},
+        mappable: Optional[Union[List[Any], Dict[str, List[Any]]]] = None,
         backend: str = "thread",
         start_method: str = "fork",
     ):
@@ -701,11 +709,13 @@ class WorkerPool:
         self.worker_count = worker_count
         self.start_method = start_method
 
-        self.mapper = (
-            self.map_dict_iterable
-            if isinstance(mappable, dict)
-            else self.map_list_iterable
-        )
+        if mappable == None:
+            self.mapper = lambda: [], {}
+        elif isinstance(mappable, dict):
+            self.mapper = self.map_dict_iterable
+        else:
+            self.mapper = self.map_list_iterable
+
         if backend == "thread":
             self.backend = self.backend_thread
         elif backend == "process":

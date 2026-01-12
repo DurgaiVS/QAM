@@ -15,7 +15,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.utilities import rank_zero_only
 from torchmetrics import ConfusionMatrix, Metric, StatScores
 
-from ..utils import Classifier, defaultdict, find_available_filename
+from ..utils import TradeTrend, defaultdict, find_available_filename
 
 
 def f1score(
@@ -159,7 +159,7 @@ class QAMStats:
                 A generator of all computable attributes name and their corresponding functions.
         """
         for metric, m_fn in METRICS_NAME_AND_FN.items():
-            for l_name in Classifier.get_labels_name():
+            for l_name in TradeTrend.get_labels_name():
                 yield f"{l_name.lower()}_{metric}", m_fn
 
     @staticmethod
@@ -436,7 +436,7 @@ class QAMMetric(Metric):
             avg: List[torch.Tensor] = []
             for id, (tp, fp, _, fn, _) in enumerate(statscore):
                 val = m_fn(tp, fp, fn)
-                scores[f"{Classifier(id).name.lower()}_{metric}"] = val
+                scores[f"{TradeTrend(id).name.lower()}_{metric}"] = val
                 if not torch.isnan(val):
                     avg.append(val)
 

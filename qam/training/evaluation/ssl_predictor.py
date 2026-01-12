@@ -8,7 +8,7 @@ from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.utilities import rank_zero_only
 
 from ...modules.model.conformer_encoder import ConfEncoderWithClassificationHeads
-from ...utils import Classifier, QAMDataBatch, QAMDataSample, defaultdict
+from ...utils import QAMDataBatch, QAMDataSample, TradeTrend, defaultdict
 from ..utils import QAMMetric, QAMStats
 from .utils import QAMInferenceResultsWriter
 
@@ -23,7 +23,7 @@ class SSLPredictor(pl.LightningModule):
         super().__init__()
         self.model = model
         self.output_dir = output_dir
-        self.labels_count = len(Classifier.__members__)
+        self.labels_count = len(TradeTrend.__members__)
 
         self.symbolwise_metric = defaultdict(
             lambda: QAMMetric(self.labels_count).to(self.device)

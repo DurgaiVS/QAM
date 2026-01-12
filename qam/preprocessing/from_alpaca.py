@@ -4,12 +4,12 @@ import gzip
 import json
 import logging
 import math
+import multiprocessing as mp
 import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import aiohttp
-import torch.multiprocessing as mp
 from tqdm import tqdm
 
 from ..constants import SUB_SPLITS
@@ -129,7 +129,7 @@ class AlpacaSource(Source):
             json.dump({"start": self.start, "end": self.end}, f)
 
         pbar.close()
-        logging.info(f"Downloading done for '{symbol}...")
+        logging.info(f"Downloading done for '{symbol}'...")
 
     def download_async(self, symbol: str):
         asyncio.run(self.download(symbol))

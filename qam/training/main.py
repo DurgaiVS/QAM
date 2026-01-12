@@ -11,12 +11,10 @@ def ssl_pretrain(overrides: List[str] = []):
 
     import hydra
     import pytorch_lightning as pl
-    import torch
     from pytorch_lightning.callbacks import ModelCheckpoint
 
     from ..constants import MAX_SEQ_LEN
-    from ..modules.model.conformer_encoder import ConfEncoderWithClassificationHeads
-    from ..utils import Classifier, get_cfg
+    from ..utils import TradeTrend, get_cfg
     from .data import QAMDataModule, reshard_if_needed
     from .training.ssl_pretrainer import SSLPreTrainer
     from .utils import get_best_model_path, wrap_up_trainer
@@ -24,12 +22,13 @@ def ssl_pretrain(overrides: List[str] = []):
     cfg = get_cfg("train", overrides, "ssl_pretraining")
     pl.seed_everything(cfg.experiment.seed)
 
-    if cfg.trainer.devices == -1:
-        cfg.trainer.devices = torch.cuda.device_count()
-
     model_checkpoints: List[ModelCheckpoint] = []
     meta = reshard_if_needed(
-        cfg.symbols, cfg.trainer.devices, cfg.data.num_workers, cfg.data.batch_size
+        cfg.symbols,
+        cfg.trainer.devices,
+        cfg.trainer.accelerator,
+        cfg.data.num_workers,
+        cfg.data.batch_size,
     )
     cfg.trainer.val_check_interval = int(
         meta.train_steps_count * cfg.trainer.val_check_interval
@@ -43,14 +42,11 @@ def ssl_pretrain(overrides: List[str] = []):
         if isinstance(cb, ModelCheckpoint):
             model_checkpoints.append(cb)
 
-    model = ConfEncoderWithClassificationHeads(**cfg.model)
-
-    optim = hydra.utils.instantiate(cfg.optimizer, params=model.parameters())
     trainer = pl.Trainer(**cfg.trainer, callbacks=callbacks)
 
-    cfg.pl_model.loss.num_classes = len(Classifier)
-    pl_model = SSLPreTrainer.from_cfg(cfg.pl_model, model, optim)
+    cfg.pl_model.loss.num_classes = len(TradeTrend)
     data_module = QAMDataModule(**cfg.data)
+    pl_model = SSLPreTrainer.from_cfg(cfg)
 
     trainer.fit(pl_model, datamodule=data_module)
 

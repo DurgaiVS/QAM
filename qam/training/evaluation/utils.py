@@ -3,7 +3,7 @@ from typing import Dict, List, Union
 
 import torch
 
-from ...utils import Classifier, QAMFileWriter, defaultdict, find_available_filename
+from ...utils import QAMFileWriter, TradeTrend, defaultdict, find_available_filename
 from ..data.utils import QAMDataSample
 from ..utils import METRICS_NAME_AND_FN, QAMMetric, QAMStats
 
@@ -35,8 +35,8 @@ class QAMInferenceResultsWriter:
         pred: torch.Tensor,
         stats: QAMStats,
     ):
-        stats.label = Classifier(sample.label)
-        stats.prediction = Classifier(pred)
+        stats.label = TradeTrend(sample.label)
+        stats.prediction = TradeTrend(pred)
         self.symbolwise_sample_stats[sample.symbol]["sample_wise_file"].write(stats)
 
     def compute_stats(
@@ -62,7 +62,7 @@ class QAMInferenceResultsWriter:
             metric_vals = []
             for id, (tp, fp, _, fn, _) in enumerate(scores["stats"]):
                 val = metric_fn(tp, fp, fn)
-                stats[f"{Classifier(id).name.lower()}_{metric_name}"] = val.cpu().item()
+                stats[f"{TradeTrend(id).name.lower()}_{metric_name}"] = val.cpu().item()
 
                 # NOTE:
                 # instead of computing sum of tp, fp, fn 's, we've computed weighted avg of labelwise metric

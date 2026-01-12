@@ -2,11 +2,11 @@ import os
 
 PAD_ID: int = -100
 
-MAX_SEQ_LEN: int = 512
-# NOTE: For a 512 timestep data, the model will guess the trend direction within the next 512 timestep...
-TREND_UPDATE_SEQ_LEN: int = 512
+MAX_SEQ_LEN: int = 2048
+# NOTE: For a 'MAX_SEQ_LEN' timestep data, the model will guess the trend direction within the next 512 timestep...
+TREND_UPDATE_SEQ_LEN: int = 1536
 
-STRIDE_LENGTH: int = 128
+STRIDE_LENGTH: int = 256
 SUBSAMPLING_FACTOR: int = 8
 SAMPLE_DIM: int = 9
 
@@ -14,10 +14,10 @@ SAMPLE_DIM: int = 9
 LABEL_MAX_DIFF_PERCENT: float = 0.1
 # NOTE: Minimum increment percentage to consider for `High` related labels... If below this will be moved to
 # 		`Low` related, or `NoImp`
-LABEL_MIN_INCREMENT_PERCENT: float = 0.04
+LABEL_MIN_INCREMENT_PERCENT: float = 0.05
 
 DATA_DIR: str = f"{os.environ['QAM_ROOT']}/dataset"
-CONFIG_PATH: str = "./config"
+CONFIG_PATH: str = os.path.realpath(f"{__file__}/../config")
 RESHARD_DIR_NAME = "resharded"
 SUB_SPLITS = ["train", "dev", "test"]
 SPLITS = {"train": ["train"], "eval": ["dev", "test"]}

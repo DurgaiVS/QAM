@@ -6,7 +6,7 @@ import torch
 from omegaconf import DictConfig
 
 from ...constants import MAX_SEQ_LEN, SAMPLE_DIM, SUBSAMPLING_FACTOR
-from ...utils import Classifier
+from ...utils import TradeTrend
 from ..nn.conformer import ConformerLayer
 from ..pos_enc.auto_pos_enc import AutoPosEncoder
 
@@ -44,9 +44,9 @@ class ConfEncoderWithClassificationHeads(torch.nn.Module):
 
         self.classification_layer = torch.nn.Sequential(
             *([hydra.utils.instantiate(pre_s) for pre_s in classification_layer]),
-            torch.nn.Linear(encoder.input_dim, len(Classifier.__members__)),
+            torch.nn.Linear(encoder.input_dim, len(TradeTrend.__members__)),
         )
-        self.classification_head_count: int = len(Classifier.__members__)
+        self.classification_head_count: int = len(TradeTrend.__members__)
 
     def forward(
         self, inputs: torch.Tensor, ip_lengths: Optional[torch.Tensor] = None

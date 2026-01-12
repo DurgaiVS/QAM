@@ -1,10 +1,11 @@
 import logging
+import multiprocessing as mp
 import os
 import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import torch.multiprocessing as mp
+import torch
 from tqdm import tqdm
 
 from ...constants import DATA_DIR, RESHARD_DIR_NAME, SPLITS, SUB_SPLITS
@@ -292,12 +293,17 @@ def resharder_for_train(
 def reshard_if_needed(
     symbols: Dict[str, Optional[Dict[str, bool]]],
     gpus_count: Union[int, List[int]],
+    accelerator: str,
     worker_per_gpu_count: int,
     batch_size: int,
     only_selective_splits: List[str] = SUB_SPLITS,
 ) -> DatasetMeta:
     if not isinstance(gpus_count, int):
         gpus_count = len(gpus_count)
+    elif accelerator == "gpu" and gpus_count == -1:
+        gpus_count = torch.cuda.device_count()
+    elif accelerator == "cpu":
+        gpus_count = 1
 
     ctx = mp.get_context("fork")
     procs: List[mp.Process] = []

@@ -1,0 +1,50 @@
+encoder:
+  _target_: nemo.collections.asr.modules.ConformerEncoder
+  feat_in: ${model.preprocessor.features}
+  feat_out: -1 # you may set it if you need different output size other than the default d_model
+  n_layers: 18
+  d_model: 512
+
+  # Sub-sampling params
+  subsampling: dw_striding # vggnet, striding, stacking or stacking_norm, dw_striding
+  subsampling_factor: 8 # must be power of 2 for striding and vggnet
+  subsampling_conv_channels: 256 # -1 sets it to d_model
+  causal_downsampling: false
+
+  # Feed forward module's params
+  ff_expansion_factor: 4
+
+  # Multi-headed Attention Module's params
+  self_attention_model: rel_pos # rel_pos or abs_pos
+  n_heads: 8 # may need to be lower for smaller d_models
+  # [left, right] specifies the number of steps to be seen from left and right of each step in self-attention
+  att_context_size: [-1, -1] # -1 means unlimited context
+  att_context_style: regular # regular or chunked_limited
+  xscaling: true # scales up the input embeddings by sqrt(d_model)
+  untie_biases: true # unties the biases of the TransformerXL layers
+  pos_emb_max_len: 5000
+
+  # Convolution module's params
+  conv_kernel_size: 9
+  conv_norm_type: 'layer_norm' # batch_norm or layer_norm or groupnormN (N specifies the number of groups)
+  # conv_context_size can be"causal" or a list of two integers while conv_context_size[0]+conv_context_size[1]+1==conv_kernel_size
+  # null means [(kernel_size-1)//2, (kernel_size-1)//2], and 'causal' means [(kernel_size-1), 0]
+  conv_context_size: null
+
+  ### regularization
+  dropout: 0.1 # The dropout used in most of the Conformer Modules
+  dropout_pre_encoder: 0.1 # The dropout used before the encoder
+  dropout_emb: 0.0 # The dropout used for embeddings
+  dropout_att: 0.1 # The dropout for multi-headed attention modules
+
+  # set to non-zero to enable stochastic depth
+  stochastic_depth_drop_prob: 0.0
+  stochastic_depth_mode: linear  # linear or uniform
+  stochastic_depth_start_layer: 1
+
+decoder:
+  _target_: nemo.collections.asr.modules.ConvASRDecoder
+  feat_in: 512
+  num_classes: 5
+  vocabulary: null
+  add_blank: false
