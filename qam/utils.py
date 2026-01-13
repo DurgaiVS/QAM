@@ -478,10 +478,32 @@ class QAMDataBatch:
 
     def tensorize(self) -> "QAMDataBatch":
         if not isinstance(self.frames, torch.Tensor):
+            self.pad_samples_if_needed()
+
             self.frames = torch.stack(self.frames).to(torch.float32)
             self.labels = torch.stack(self.labels).to(torch.long)
             self.lengths = torch.tensor(self.lengths).to(torch.long)
         return self
+
+    def pad_samples_if_needed(self):
+        s_lens = set(self.lengths)
+        if len(s_lens) == 1:
+            return
+
+        max_s_len = max(s_lens)
+        for sample_id, (length, frame) in enumerate(zip(self.lengths, self.frames)):
+            if length == max_s_len:
+                continue
+
+            assert frame.shape[-1] == len(TimePointTuple)
+
+            pad_len = max_s_len - length
+            frame = torch.nn.functional.pad(
+                frame, (0, 0, 0, pad_len), "constant", 0
+            )  # pad right on 'dim=-2'
+            self.frames[sample_id] = frame
+
+            assert frame.shape[-1] == len(TimePointTuple)
 
     def to(self, *args, **kwargs) -> "QAMDataBatch":
         self.frames = self.frames.to(*args, **kwargs)
