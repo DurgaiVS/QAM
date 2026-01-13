@@ -40,7 +40,7 @@ class FocalLoss(torch.nn.modules.loss._Loss):
         gamma: float,
         alpha: List[Union[int, float]],
         ignore_index: int = PAD_ID,
-        softmax_dim: int = 2,
+        softmax_dim: int = -1,
     ):
         super().__init__()
         self.alpha = alpha

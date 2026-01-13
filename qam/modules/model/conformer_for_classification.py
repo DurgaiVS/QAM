@@ -1,15 +1,18 @@
 import hydra
 import torch
-from nemo.collections.asr.modules import ConformerEncoder, ConvASRDecoder
+from nemo.collections.asr.modules import ConformerEncoder, ConvASRDecoderClassification
 
 
 class ConformerForClassification(torch.nn.Module):
-    def __init__(self, encoder: ConformerEncoder, decoder: ConvASRDecoder):
+    def __init__(
+        self, encoder: ConformerEncoder, decoder: ConvASRDecoderClassification
+    ):
         self.encoder = encoder
         self.decoder = decoder
 
     def forward(self, input_tensor, input_length):
-        return self.decoder(self.encoder(input_tensor, input_length)[0])
+        enc_op, *_ = self.encoder(input_tensor, input_length)
+        return self.decoder(enc_op)
 
     @classmethod
     def from_cfg(cls, cfg):

@@ -35,8 +35,8 @@ class QAMInferenceResultsWriter:
         pred: torch.Tensor,
         stats: QAMStats,
     ):
-        stats.label = TradeTrend(sample.label)
-        stats.prediction = TradeTrend(pred)
+        stats.label = TradeTrend(sample.label.item())
+        stats.prediction = TradeTrend(pred.item())
         self.symbolwise_sample_stats[sample.symbol]["sample_wise_file"].write(stats)
 
     def compute_stats(

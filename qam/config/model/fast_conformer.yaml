@@ -43,8 +43,8 @@ encoder:
   stochastic_depth_start_layer: 1
 
 decoder:
-  _target_: nemo.collections.asr.modules.ConvASRDecoder
-  feat_in: 512
+  _target_: nemo.collections.asr.modules.ConvASRDecoderClassification
+  feat_in: ${encoder.d_model}
   num_classes: 5
-  vocabulary: null
-  add_blank: false
+  return_logits: true
+  pooling_type: avg

@@ -7,7 +7,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.utilities import rank_zero_only
 
-from ...modules.model.conformer_encoder import ConfEncoderWithClassificationHeads
+from ...modules.model.conformer_for_classification import ConformerForClassification
 from ...utils import QAMDataBatch, QAMDataSample, TradeTrend, defaultdict
 from ..utils import QAMMetric, QAMStats
 from .utils import QAMInferenceResultsWriter
@@ -17,7 +17,7 @@ from .utils import QAMInferenceResultsWriter
 class SSLPredictor(pl.LightningModule):
     def __init__(
         self,
-        model: ConfEncoderWithClassificationHeads,
+        model: ConformerForClassification,
         output_dir: str,
     ):
         super().__init__()
@@ -45,9 +45,8 @@ class SSLPredictor(pl.LightningModule):
         dataloader_idx: int = 0,
     ) -> None:
 
-        preds = torch.argmax(output, dim=1)
+        preds = torch.argmax(output, dim=-1)
         for sample, pred in zip(batch, preds):
-            sample: QAMDataSample
             symbol = sample.symbol
 
             stats = self.symbolwise_metric[symbol](pred, sample.label)
@@ -56,7 +55,7 @@ class SSLPredictor(pl.LightningModule):
     def predict_step(
         self, batch: QAMDataBatch, batch_idx: int, dataloader_idx: int = 0
     ) -> torch.Tensor:
-        preds, _ = self.model(batch.frames)
+        preds = self.model(batch.frames, batch.lengths)
         return preds
 
     @classmethod
@@ -67,7 +66,7 @@ class SSLPredictor(pl.LightningModule):
 
             hparams = OmegaConf.load(os.path.join(tmpdir, "hparams.yaml"))
 
-            model = ConfEncoderWithClassificationHeads(**hparams.model)
+            model = ConformerForClassification.from_cfg(hparams.model)
             model.load_state_dict(os.path.join(tmpdir, "weights.pt"))
             model.eval()
 

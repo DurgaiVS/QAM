@@ -5,7 +5,7 @@ import math
 import os
 import tarfile
 from copy import deepcopy
-from typing import Callable, Dict, Generator, List, Tuple, Union
+from typing import Callable, Dict, Generator, List, Optional, Tuple, Union
 
 import hydra
 import pytorch_lightning as pl
@@ -91,10 +91,10 @@ def isnan(value: Union[float, torch.Tensor]) -> bool:
     Returns:
             bool: True if the given value is NaN, False otherwise.
     """
-    return (
-        isinstance(value, torch.Tensor)
-        and (torch.numel(value) > 1 or torch.isnan(value))  # checking if it is a scalar
-    ) or math.isnan(value)
+    if isinstance(value, torch.Tensor):
+        return torch.isnan(value).all()
+    elif isinstance(value, float):
+        return math.isnan(value)
 
 
 class QAMStats:
@@ -129,8 +129,8 @@ class QAMStats:
     def walk_through(self) -> Generator[Tuple[str, torch.Tensor, bool], None, None]:
         """
         This function is used to yield the stat scores of this class's attributes,
-        excluding `punct_confmat` and `capit_confmat`, coz those stats cannot be logged,
-        and, attributes whose value is `None`.
+        excluding `confmat`, coz those stats cannot be logged and attributes
+        whose value is `None`.
 
         Returns:
         --------
@@ -176,6 +176,9 @@ class QAMStats:
         """
         yield f"confmat", 0
 
+        for metric, _ in METRICS_NAME_AND_FN.items():
+            yield metric, math.nan
+
         for attr, _ in QAMStats.get_computable_attributes_name_and_fn():
             yield attr, math.nan
 
@@ -202,13 +205,18 @@ class QAMStats:
                 or isinstance(s_v, str)
                 or isinstance(o_v, str)
                 or isnan(o_v)
+                or ("prediction" in k)
+                or ("label" in k)
             ):
                 continue
 
-            if isnan(o_v):
+            if isnan(s_v):
                 setattr(self, k, o_v)
             else:
                 setattr(self, k, s_v + o_v)
+
+        if hasattr(self, "prediction"):
+            setattr(self, "prediction", None)
 
         return self
 
@@ -231,6 +239,8 @@ class QAMStats:
                 or isinstance(s_v, str)
                 or isinstance(o_v, str)
                 or isnan(o_v)
+                or ("prediction" in k)
+                or ("label" in k)
             ):
                 continue
 
@@ -238,6 +248,9 @@ class QAMStats:
                 setattr(self, k, -1 * o_v)
             else:
                 setattr(self, k, s_v - o_v)
+
+        if hasattr(self, "prediction"):
+            setattr(self, "prediction", None)
 
         return self
 
@@ -253,7 +266,14 @@ class QAMStats:
                 QAMStats: The QAMStats with the multiplied data.
         """
         for k, v in vars(self).items():
-            if (v is None) or isinstance(v, str) or isnan(v) or (k == "confmat"):
+            if (
+                (v is None)
+                or isinstance(v, str)
+                or isnan(v)
+                or ("confmat" in k)
+                or ("prediction" in k)
+                or ("label" in k)
+            ):
                 continue
 
             setattr(self, k, (v * value))
@@ -272,7 +292,14 @@ class QAMStats:
                 QAMStats: The QAMStats with the divided data.
         """
         for k, v in vars(self).items():
-            if (v is None) or isinstance(v, str) or isnan(v) or (k == "confmat"):
+            if (
+                (v is None)
+                or isinstance(v, str)
+                or isnan(v)
+                or ("confmat" in k)
+                or ("prediction" in k)
+                or ("label" in k)
+            ):
                 continue
 
             setattr(self, k, (v / value))
@@ -311,29 +338,35 @@ class QAMStats:
         Returns:
                 dict: The dictionary representation of the QAMStats.
         """
-        s = vars(self.copy())
+        s = deepcopy(vars(self))
+
+        if isinstance(s["label"], TradeTrend):
+            s["label"] = s["label"].name
+        elif isinstance(s["label"], int):
+            s["label"] = TradeTrend(s["label"]).name
+        elif isinstance(s["label"], torch.Tensor):
+            s["label"] = TradeTrend(s["label"].item()).name
+
+        if isinstance(s["prediction"], TradeTrend):
+            s["prediction"] = s["prediction"].name
+        elif isinstance(s["prediction"], int):
+            s["prediction"] = TradeTrend(s["prediction"]).name
+        elif isinstance(s["prediction"], torch.Tensor):
+            s["prediction"] = TradeTrend(s["prediction"].item()).name
+
         for k, v in list(s.items()):
-            if isinstance(v, torch.Tensor):
-                s[k] = v.cpu().tolist()
-            elif v in [None, math.nan]:
-                s.pop(k)
-            elif (k == "confmat") and (v == 0):
+            if isnan(v):
                 s.pop(k)
 
+            elif isinstance(v, torch.Tensor):
+                if v.numel() == 1:
+                    s[k] = v.detach().cpu().item()
+                else:
+                    s[k] = v.detach().cpu().tolist()
+
+            elif v is None:
+                s.pop(k)
         return s
-
-    @classmethod
-    def from_dict(cls, data: Dict) -> "QAMStats":
-        """
-        Loads the QAMStats from the given dictionary.
-
-        Args:
-                data (dict): The dictionary to be loaded.
-
-        Returns:
-                QAMStats: The loaded QAMStats.
-        """
-        return cls(**data)
 
     def to_str(self) -> str:
         """
@@ -343,20 +376,6 @@ class QAMStats:
                 str: The string representation of the QAMStats.
         """
         return json.dumps(self.to_dict())
-
-    @classmethod
-    def read_from(cls, filepath: str):
-        """
-        Loads the QAMStats from the given file.
-
-        Args:
-                filepath (str): The file path.
-
-        Returns:
-                QAMStats: The loaded QAMStats.
-        """
-        with open(filepath, "r") as f:
-            return cls(**json.load(f))
 
     @rank_zero_only
     def write_from_rank_zero_only(self, filepath: str):
@@ -380,6 +399,33 @@ class QAMStats:
             f.write(self.to_str())
 
     @classmethod
+    def from_dict(cls, data: Dict) -> "QAMStats":
+        """
+        Loads the QAMStats from the given dictionary.
+
+        Args:
+                data (dict): The dictionary to be loaded.
+
+        Returns:
+                QAMStats: The loaded QAMStats.
+        """
+        return cls(**data).reformat_after_loading()
+
+    @classmethod
+    def read_from(cls, filepath: str):
+        """
+        Loads the QAMStats from the given file.
+
+        Args:
+                filepath (str): The file path.
+
+        Returns:
+                QAMStats: The loaded QAMStats.
+        """
+        with open(filepath, "r") as f:
+            return cls.from_dict(json.load(f))
+
+    @classmethod
     def from_str(cls, data: str):
         """
         Loads the QAMStats from the given string.
@@ -387,7 +433,20 @@ class QAMStats:
         Args:
                 data (str): The string to be loaded.
         """
-        return cls(**json.loads(data))
+        return cls.from_dict(json.loads(data))
+
+    def reformat_after_loading(self):
+        """
+        Reformats the QAMStats after loading from a file or a str or a dict.
+        """
+        self["label"] = TradeTrend[self["label"]]
+        self["prediction"] = TradeTrend[self["prediction"]]
+
+        for k, v in vars(self).items():
+            if isinstance(v, list):
+                setattr(self, k, torch.tensor(v))
+
+        return self
 
 
 class QAMMetric(Metric):
@@ -417,7 +476,11 @@ class QAMMetric(Metric):
         )
 
     def generate_stats_scores(
-        self, statscore: torch.Tensor, confmat: torch.Tensor
+        self,
+        statscore: torch.Tensor,
+        confmat: torch.Tensor,
+        prediction: Optional[torch.Tensor] = None,
+        label: Optional[torch.Tensor] = None,
     ) -> QAMStats:
         """
         Generates the QAMStats for the stats score and confusion matrix.
@@ -442,7 +505,7 @@ class QAMMetric(Metric):
 
             scores[metric] = torch.stack(avg).mean()
 
-        return QAMStats(**scores, confmat=confmat)
+        return QAMStats(**scores, confmat=confmat, prediction=prediction, label=label)
 
     # def __call__(self, punct_preds: torch.Tensor, capit_preds: torch.Tensor, punct_labels: torch.Tensor, capit_labels: torch.Tensor) -> QAMStats:
     def forward(self, preds: torch.Tensor, labels: torch.Tensor) -> QAMStats:
@@ -458,7 +521,7 @@ class QAMMetric(Metric):
         """
 
         return self.generate_stats_scores(
-            self.statscore(preds, labels), self.confmat(preds, labels)
+            self.statscore(preds, labels), self.confmat(preds, labels), preds, labels
         )
 
     def compute(self) -> QAMStats:
@@ -587,7 +650,7 @@ def init_optimizer(
 def get_best_model_path(ckpt_cbs: List[ModelCheckpoint]) -> str:
     id = -1
     if ckpt_cbs[0].mode == "max":
-        best = 0.0
+        best = float("-inf")
         is_max = True
     else:
         best = float("inf")
