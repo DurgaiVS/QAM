@@ -117,12 +117,21 @@ def _resharder_for_eval(
     gpus_count: Union[int, List[int]],
     worker_per_gpu_count: int,
     batch_size: int,
+    datasource_name: str,
+    datasource_interval: str,
     req_total_shards: int,
 ):
 
     ctx = mp.get_context("fork")
 
-    reshard_dir = os.path.join(DATA_DIR, s_name, sub_split, RESHARD_DIR_NAME)
+    reshard_dir = os.path.join(
+        DATA_DIR,
+        datasource_name,
+        datasource_interval,
+        s_name,
+        sub_split,
+        RESHARD_DIR_NAME,
+    )
     meta = DatasetMeta([s_name], batch_size, gpus_count, worker_per_gpu_count)
     reshard_req = _is_reshard_required(reshard_dir, meta)
 
@@ -130,7 +139,12 @@ def _resharder_for_eval(
         return
 
     data_q = ctx.Queue(-1)
-    shards = path_resolver(sub_split, os.path.join(DATA_DIR, s_name, "processed"))
+    shards = path_resolver(
+        sub_split,
+        os.path.join(
+            DATA_DIR, datasource_name, datasource_interval, s_name, "processed"
+        ),
+    )
     shards.sort()
 
     samples_count = meta.get_sample_count(sub_split) or _get_total_samplescount(shards)
@@ -167,6 +181,8 @@ def resharder_for_eval(
     gpus_count: Union[int, List[int]],
     worker_per_gpu_count: int,
     batch_size: int,
+    datasource_name: str,
+    datasource_interval: str,
 ):
     assert (
         sub_split in SPLITS["eval"]
@@ -187,6 +203,8 @@ def resharder_for_eval(
                 gpus_count,
                 worker_per_gpu_count,
                 batch_size,
+                datasource_name,
+                datasource_interval,
                 req_total_shards,
             ),
         )
@@ -223,12 +241,16 @@ def resharder_for_train(
     gpus_count: Union[int, List[int]],
     worker_per_gpu_count: int,
     batch_size: int,
+    datasource_name: str,
+    datasource_interval: str,
 ):
     assert (
         sub_split in SPLITS["train"]
     ), f"Only {SPLITS['train']} sub splits are supported, but got {sub_split}."
 
-    reshard_dir = os.path.join(DATA_DIR, RESHARD_DIR_NAME)
+    reshard_dir = os.path.join(
+        DATA_DIR, datasource_name, datasource_interval, RESHARD_DIR_NAME
+    )
     req_total_shards = gpus_count * worker_per_gpu_count
     meta = DatasetMeta(
         [
@@ -244,7 +266,7 @@ def resharder_for_train(
     procs: List[mp.Process] = []
     ctx = mp.get_context("fork")
 
-    reshard_req = _is_reshard_required(reshard_dir, sub_split, meta)
+    reshard_req = _is_reshard_required(reshard_dir, meta)
     if not reshard_req:
         return
 
@@ -255,7 +277,12 @@ def resharder_for_train(
         if (s_info is not None) and ("train" not in s_info):
             continue
 
-        sub_shards = path_resolver("train", os.path.join(DATA_DIR, s_name, "processed"))
+        sub_shards = path_resolver(
+            "train",
+            os.path.join(
+                DATA_DIR, datasource_name, datasource_interval, s_name, "processed"
+            ),
+        )
         sub_shards.sort()
         shards.append(sub_shards)
 
@@ -276,6 +303,7 @@ def resharder_for_train(
         len(shards),
         req_total_shards,
         sub_split,
+        id=sub_split,
         base_dir=reshard_dir,
         filename_stem=sub_split,
         extension="jsonl.gz",
@@ -296,6 +324,8 @@ def reshard_if_needed(
     accelerator: str,
     worker_per_gpu_count: int,
     batch_size: int,
+    datasource_name: str,
+    datasource_interval: str,
     only_selective_splits: List[str] = SUB_SPLITS,
 ) -> DatasetMeta:
     if not isinstance(gpus_count, int):
@@ -312,7 +342,7 @@ def reshard_if_needed(
         "eval": resharder_for_eval,
     }
 
-    for split, sub_splits in SPLITS:
+    for split, sub_splits in SPLITS.items():
         resharder = fn_as_per_splits[split]
         for sub_split in sub_splits:
             if sub_split not in only_selective_splits:
@@ -326,6 +356,8 @@ def reshard_if_needed(
                     gpus_count,
                     worker_per_gpu_count,
                     batch_size,
+                    datasource_name,
+                    datasource_interval,
                 ),
             )
             p.start()
@@ -336,7 +368,13 @@ def reshard_if_needed(
         p.join()
 
     meta = DatasetMeta.from_file(
-        os.path.join(DATA_DIR, RESHARD_DIR_NAME, "meta.json")
+        os.path.join(
+            DATA_DIR,
+            datasource_name,
+            datasource_interval,
+            RESHARD_DIR_NAME,
+            "meta.json",
+        )
     ).compute_max_safe_batches_count()
 
     return meta

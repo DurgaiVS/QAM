@@ -169,10 +169,10 @@ class QAMTimePoint:
     close: float
     high: float
     low: float
-    n_trades: int
     volume: int
-    volume_wa: float
     time: str
+    n_trades: int = 0
+    volume_wa: float = 0.0
 
     def __lt__(self, other: "QAMTimePoint") -> bool:
         return self.low < other.low
@@ -204,8 +204,8 @@ class QAMTimePoint:
     def to_dict(self) -> Dict:
         return vars(self)
 
-    def as_tuple(self) -> TimePointTuple:
-        return (
+    def as_tuple(self) -> QAMTimePointTuple:
+        return QAMTimePointTuple(
             hash(self.symbol),
             self.open,
             self.close,
@@ -304,7 +304,7 @@ class DatasetMeta:
 class QAMDataSample:
     symbol: str
     frame: Union[List[TimePointTuple], torch.Tensor]
-    label: Union[TradeTrend, torch.Tensor]
+    label: Union[int, torch.Tensor]
 
     def to_str(self) -> str:
         return json.dumps(vars(self))
@@ -320,12 +320,12 @@ class QAMDataSample:
     def tolist(self) -> "QAMDataSample":
         if isinstance(self.frame, torch.Tensor):
             self.frame = self.frame.cpu().tolist()
-            self.label = TradeTrend(self.label.cpu().item())
+            self.label = self.label.cpu().item()
 
     def tensorize(self) -> "QAMDataSample":
         if not isinstance(self.frame, torch.Tensor):
             self.frame = torch.tensor(self.frame).to(torch.float32)
-            self.label = torch.tensor(self.label.value).to(torch.long)
+            self.label = torch.tensor(self.label).to(torch.long)
         return self
 
     def to(self, *args, **kwargs) -> "QAMDataSample":
@@ -360,7 +360,7 @@ class QAMDataSample:
 
             qam_data_tuples.append(sample.as_tuple())
 
-        return cls(symbol, qam_data_tuples, label)
+        return cls(symbol, qam_data_tuples, label.value)
 
     @staticmethod
     def get_label(
@@ -556,7 +556,7 @@ class QAMDataBatch:
 
 class QAMFileWriter:
     """
-    ITNFileWriter is used to write the data into the files in the ITN format. It can write the data to many shards
+    QAMFileWriter is used to write the data into the files in the ITN format. It can write the data to many shards
     based on the size per shard or the count per shard. Either full path or base directory, filename stem and extension
     should be provided. If the size per file is provided, then the data will be written to the file until the size
     reaches the provided size. If the count per file is provided, then the data will be written to the file until the
@@ -565,7 +565,7 @@ class QAMFileWriter:
     closed when the object is deleted or when the close method is called. The object can be used as a context manager.
     Eg:
     ```python
-    with ITNFileWriter(
+    with QAMFileWriter(
         base_dir="data",
         filename_stem="sample",
         extension="json",
@@ -707,8 +707,8 @@ class QAMFileWriter:
 
 
 def get_cfg(config_name: str, overrides: List[str], job_name: str) -> DictConfig:
-    with hydra.initialize(
-        config_path=CONFIG_PATH, job_name=job_name, version_base=None
+    with hydra.initialize_config_dir(
+        config_dir=CONFIG_PATH, job_name=job_name, version_base=None
     ):
         return hydra.compose(config_name=config_name, overrides=overrides)
 
@@ -730,9 +730,10 @@ class WorkerPool:
         self.mappable = mappable
         self.worker_count = worker_count
         self.start_method = start_method
+        self._w = []
 
         if mappable == None:
-            self.mapper = lambda: [], {}
+            self.mapper = lambda: ([], {})
         elif isinstance(mappable, dict):
             self.mapper = self.map_dict_iterable
         else:
@@ -742,7 +743,8 @@ class WorkerPool:
             self.backend = self.backend_thread
         elif backend == "process":
             self.backend = self.backend_process
-        self._w = []
+        elif backend == "async":
+            self.backend = self.backend_asyncio
 
     def start(self):
         self.backend()

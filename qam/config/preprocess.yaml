@@ -3,17 +3,25 @@ defaults:
     - override hydra/job_logging: stdout
 
 interval: ??? # 1h for yf / 1Min for alpaca
-worker_count: 1
+worker_count: -1
+skip_download: false
 
 symbols:
   - AAPL
   - NVDA
+  - GOOG
+  - MSFT
+  - AMZN
+  - PYPL
+  - TSLA
+  - AMD
+  - INTC
 
 split:
-  train: 0.7
-  val: 0.15
-  test: 0.15
+  train: 0.8
+  dev: 0.1
+  test: 0.1
 
-range: ???
+range: null
 start: ???
 end: ???

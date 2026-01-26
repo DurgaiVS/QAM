@@ -1,11 +1,9 @@
 defaults:
-  - symbols
   - loss@pl_model.loss: focal
   - optimizer: adamw
   - lr_scheduler/step_based@pl_model.step_based: cosine_annealing
   - lr_scheduler/metric_based@pl_model.metric_based: reduce_on_plateau
   - model: fast_conformer
-  - pl_trainer_callbacks
   - _self_
   - override hydra/job_logging: stdout
 
@@ -33,10 +31,22 @@ trainer:
   limit_train_batches: null # NOTE: will be updated during runtime...
 
 data:
-  symbols: ${symbols}
+  symbols:
+    AAPL: null
+    NVDA: null
+    GOOGL: null
+    MSFT: null
+    AMZN: null
+    PYPL: null
+    TSLA: null
+    AMD: null
+    INTC: null
+
   num_workers: 16
   batch_size: 32
   buffer_factor: 4
+  src: yfinancesource
+  interval: 1m
 
 pl_model:
   metric_name: ${experiment.metric_to_track}
@@ -44,6 +54,25 @@ pl_model:
   scheduler_frequency: 1
   scheduler_interval: epoch
   metric_based:
+    mode: ${experiment.metric_mode}
+
+plt_callbacks:
+  - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    dirpath: ${experiment.output_dir}/checkpoints
+    filename: "{epoch}-{${experiment.metric_to_track}:.2f}"
+    save_top_k: ${experiment.save_top_k}
+    save_last: true
+    verbose: true
+    monitor: ${experiment.metric_to_track}
+    mode: ${experiment.metric_mode}
+    every_n_train_steps: ${trainer.val_check_interval}
+  - _target_: pytorch_lightning.callbacks.LearningRateMonitor
+  - _target_: pytorch_lightning.callbacks.ModelSummary
+    max_depth: 2
+  - _target_: pytorch_lightning.callbacks.EarlyStopping
+    monitor: ${experiment.metric_to_track}
+    patience: ${experiment.patience}
+    verbose: true
     mode: ${experiment.metric_mode}
 
 hydra:

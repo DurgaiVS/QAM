@@ -22,7 +22,7 @@ nemo-asr = "0.9.0"
 infinibatch = "*"
 torchrl = "~0.10.0"
 ray = "~2.53.0"
-yfinance = "0.2.37"
+yfinance = "~1.1.0"
 seaborn = "~0.13.2"
 matplotlib = "~3.10.8"
 

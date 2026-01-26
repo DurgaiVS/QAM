@@ -12,19 +12,27 @@ from .utils import collate_fn
 
 class QAMDataModule(pl.LightningDataModule):
     def __init__(
-        self, symbols: DictConfig, num_workers: int, batch_size: int, buffer_factor: int
+        self,
+        symbols: DictConfig,
+        num_workers: int,
+        batch_size: int,
+        buffer_factor: int,
+        source: str,
+        interval: str,
     ):
         super().__init__()
         self.symbols = symbols
         self._num_workers = num_workers
         self._batch_size = batch_size
         self._buffer_factor = buffer_factor
+        self._source = source
+        self._interval = interval
 
     def setup(self, stage: str) -> None:
 
         if stage == "fit":
             self.train_dataset = QAMDataset(
-                os.path.join(DATA_DIR, RESHARD_DIR_NAME),
+                os.path.join(DATA_DIR, self._source, self._interval, RESHARD_DIR_NAME),
                 "train",
                 self._batch_size,
                 self._buffer_factor,
@@ -34,7 +42,9 @@ class QAMDataModule(pl.LightningDataModule):
         if (stage == "validate") or (stage == "fit"):
             self.val_dataset = [
                 QAMDataset(
-                    os.path.join(DATA_DIR, s_name, RESHARD_DIR_NAME),
+                    os.path.join(
+                        DATA_DIR, self._source, self._interval, s_name, RESHARD_DIR_NAME
+                    ),
                     "dev",
                     self._batch_size,
                     self._buffer_factor,

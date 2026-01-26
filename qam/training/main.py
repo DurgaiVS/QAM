@@ -6,7 +6,7 @@ app = typer.Typer()
 
 
 @app.command()
-def ssl_pretrain(overrides: List[str] = []):
+def ssl_pretrain(overrides: List[str]):
     """ """
 
     import hydra
@@ -24,20 +24,20 @@ def ssl_pretrain(overrides: List[str] = []):
 
     model_checkpoints: List[ModelCheckpoint] = []
     meta = reshard_if_needed(
-        cfg.symbols,
+        cfg.data.symbols,
         cfg.trainer.devices,
         cfg.trainer.accelerator,
         cfg.data.num_workers,
         cfg.data.batch_size,
+        cfg.data.src,
+        cfg.data.interval,
     )
     cfg.trainer.val_check_interval = int(
         meta.train_steps_count * cfg.trainer.val_check_interval
     )
     cfg.trainer.limit_train_batches = meta.train_steps_count
 
-    callbacks = [
-        hydra.utils.instantiate(callback) for callback in cfg.pl_trainer_callbacks
-    ]
+    callbacks = [hydra.utils.instantiate(callback) for callback in cfg.plt_callbacks]
     for cb in callbacks:
         if isinstance(cb, ModelCheckpoint):
             model_checkpoints.append(cb)
@@ -57,7 +57,7 @@ def ssl_pretrain(overrides: List[str] = []):
 
 
 @app.command
-def ssl_evaluate(overrides: List[str] = []):
+def ssl_evaluate(overrides: List[str]):
     """ """
 
     import hydra
@@ -75,15 +75,15 @@ def ssl_evaluate(overrides: List[str] = []):
         cfg.trainer.devices = torch.cuda.device_count()
 
     reshard_if_needed(
-        cfg.symbols,
+        cfg.data.symbols,
         cfg.trainer.devices,
         cfg.data.num_workers,
         cfg.data.batch_size,
+        cfg.data.src,
+        cfg.data.interval,
         ["test"],
     )
-    callbacks = [
-        hydra.utils.instantiate(callback) for callback in cfg.experiment.callbacks
-    ]
+    callbacks = [hydra.utils.instantiate(callback) for callback in cfg.plt_callbacks]
     data_module = QAMDataModule(**cfg.data)
     predictor = SSLPredictor.from_cfg(cfg)
 

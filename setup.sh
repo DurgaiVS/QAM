@@ -12,7 +12,7 @@ if [[ ! -n $(command -v poetry) ]]; then
 fi
 
 cat <<EOF > ./.env
-QAM_ROOT=$(pwd)
+QAM_ROOT="$(realpath "$(dirname "$0")")"
 EOF
 
 poetry install

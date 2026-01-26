@@ -8,7 +8,7 @@ from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.utilities import rank_zero_only
 
 from ...modules.model.conformer_for_classification import ConformerForClassification
-from ...utils import QAMDataBatch, QAMDataSample, TradeTrend, defaultdict
+from ...utils import QAMDataBatch, TradeTrend, defaultdict
 from ..utils import QAMMetric, QAMStats
 from .utils import QAMInferenceResultsWriter
 

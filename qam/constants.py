@@ -17,7 +17,7 @@ LABEL_MAX_DIFF_PERCENT: float = 0.1
 LABEL_MIN_INCREMENT_PERCENT: float = 0.05
 
 DATA_DIR: str = f"{os.environ['QAM_ROOT']}/dataset"
-CONFIG_PATH: str = os.path.realpath(f"{__file__}/../config")
+CONFIG_PATH: str = os.path.realpath(f"{os.environ['QAM_ROOT']}/qam/config")
 RESHARD_DIR_NAME = "resharded"
 SUB_SPLITS = ["train", "dev", "test"]
 SPLITS = {"train": ["train"], "eval": ["dev", "test"]}
