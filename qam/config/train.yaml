@@ -34,7 +34,7 @@ data:
   symbols:
     AAPL: null
     NVDA: null
-    GOOGL: null
+    GOOG: null
     MSFT: null
     AMZN: null
     PYPL: null
@@ -42,9 +42,9 @@ data:
     AMD: null
     INTC: null
 
-  num_workers: 16
-  batch_size: 32
-  buffer_factor: 4
+  num_workers: 1
+  batch_size: 8
+  buffer_factor: 2
   src: yfinancesource
   interval: 1m
 

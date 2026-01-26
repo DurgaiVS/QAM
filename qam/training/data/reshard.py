@@ -85,7 +85,7 @@ def _is_reshard_required(
                 f"Cannot find metadata file, removing existing resharded directory `{reshard_dir}`"
             )
             shutil.rmtree(reshard_dir)
-        os.mkdir(reshard_dir)
+        os.makedirs(reshard_dir)
         return True
 
     resharded_meta = DatasetMeta.from_file(metafile_path)
