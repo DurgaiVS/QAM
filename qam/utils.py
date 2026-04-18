@@ -162,6 +162,12 @@ class TradeTrend(Enum):
             yield label.name
 
 
+class QAMAction(Enum):
+    BUY: int = 0
+    SELL: int = auto()
+    HOLD: int = auto()
+
+
 @dataclass
 class QAMTimePoint:
     symbol: str
@@ -374,43 +380,33 @@ class QAMDataSample:
         #       profit, like, if we get 2% profit, after paying all the charges
         #       when selling we might make a loss. So having a buffer region, and
         #       only if the trend goes above that, we'll buy/sell.
-        max_val_entry = entry_point.close + (
+        profit_entrypoint = entry_point.close + (
             entry_point.close * LABEL_MIN_INCREMENT_PERCENT
         )
 
         # NOTE: Minimum fluctuation absolute percentage from the last entry value, to consider
         #       for the `Very...` label.
-        max_val_border_for_very = entry_point.close + (
+        high_profit_entrypoint = entry_point.close + (
             entry_point.close * LABEL_MAX_DIFF_PERCENT
         )
-        min_val_border_for_very = entry_point.close - (
+        high_loss_entrypoint = entry_point.close - (
             entry_point.close * LABEL_MAX_DIFF_PERCENT
         )
 
-        max_val, min_val = entry_point.close, entry_point.close
-
-        for trend_sample in trend_samples:
-            if trend_sample.high > max_val:
-                max_val = trend_sample.high
-            if trend_sample.low < min_val:
-                min_val = trend_sample.low
-
-        if max_val >= max_val_entry:
-            if max_val > max_val_border_for_very:
+        best_timepoint = max(trend_samples, key=lambda x: x.high).high
+        if best_timepoint >= profit_entrypoint:
+            if best_timepoint > high_profit_entrypoint:
                 return TradeTrend.VERY_HIGH
             else:
                 return TradeTrend.HIGH
 
-        elif min_val < entry_point.close:
-            if min_val < min_val_border_for_very:
+        elif best_timepoint <= entry_point.close:
+            if best_timepoint < high_loss_entrypoint:
                 return TradeTrend.VERY_LOW
             else:
                 return TradeTrend.LOW
 
         else:
-            logging.warning(
-                "Encountered a case where the trend is neither moving up nor moving down."
-            )
             return TradeTrend.NO_IMP
 
     @classmethod
@@ -423,11 +419,14 @@ class QAMDataSample:
 
 # NOTE: The reason for not using `yield_sample_from_file` in the below fn is
 #       because, we have to generate a sample from all possible timepoints
-#       serially available, like, the last `K`samples...
+#       serially available, like, the last `K`samples... And we cannot skip
+#       any timepoint which are at the end of the file, which is what
+#       `yield_sample_from_file` does.
 def yield_sample_from_serially_sorted_files(
     paths: List[Path],
 ) -> Generator[QAMDataSample, None, None]:
     samples: List[QAMTimePoint] = []
+    paths.sort()
     for path in paths:
         with gzip.open(path, "rt") as f:
             for line in f:

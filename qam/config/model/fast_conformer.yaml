@@ -1,9 +1,9 @@
 encoder:
   _target_: nemo.collections.asr.modules.ConformerEncoder
-  feat_in: ${model.preprocessor.features}
+  feat_in: ${constants.feat_in}
   feat_out: -1 # you may set it if you need different output size other than the default d_model
   n_layers: 18
-  d_model: 512
+  d_model: ${constants.feat_out}
 
   # Sub-sampling params
   subsampling: dw_striding # vggnet, striding, stacking or stacking_norm, dw_striding
@@ -44,7 +44,7 @@ encoder:
 
 decoder:
   _target_: nemo.collections.asr.modules.ConvASRDecoderClassification
-  feat_in: ${encoder.d_model}
-  num_classes: 5
+  feat_in: ${constants.feat_out}
+  num_classes: ${constants.pt_num_classes}
   return_logits: true
   pooling_type: avg

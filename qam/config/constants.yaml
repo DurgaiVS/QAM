@@ -1,0 +1,7 @@
+constants:
+  feat_in: 9
+  feat_out: 512
+
+  pt_num_classes: 5
+  rl_policy_heads: 3
+  rl_value_heads: 1

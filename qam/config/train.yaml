@@ -1,4 +1,5 @@
 defaults:
+  - constants
   - loss@pl_model.loss: focal
   - optimizer: adamw
   - lr_scheduler/step_based@pl_model.step_based: cosine_annealing

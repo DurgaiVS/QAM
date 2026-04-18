@@ -586,16 +586,8 @@ def wrap_up_trainer(
         torch.save(model.state_dict(), model_path)
 
     try:
-        script_model = torch.jit.script(
-            model,
-            example_inputs=[
-                (
-                    torch.randint(
-                        0, model_max_length, (cfg.data.batch_size, model_max_length)
-                    ),
-                    torch.zeros(cfg.data.batch_size, 1, 1, model_max_length),
-                )
-            ],
+        script_model = model.get_torchscript_model(
+            cfg.data.batch_size, model_max_length
         )
     except Exception:
         logging.warning(f"Exception occurred when converting model to torchscript.")
@@ -603,23 +595,7 @@ def wrap_up_trainer(
         script_model.save(torchscript_path)
 
     OmegaConf.save(cfg, hparams_path, True)
-    torch.onnx.export(
-        model,
-        f=onnx_path,
-        args=(
-            torch.randint(0, model_max_length, (cfg.data.batch_size, model_max_length)),
-            torch.zeros(cfg.data.batch_size, 1, 1, model_max_length),
-        ),
-        input_names=["inputs", "ip_lengths"],
-        output_names=["logits", "op_lengths"],
-        # TODO: Fix this...
-        dynamic_axes={
-            "inputs": {0: "batch_size", 1: "ip_seq_len", 2: "embed_dim"},
-            "ip_lengths": {0: "batch_size", 1: "ip_seq_len"},
-            "logits": {0: "batch_size", 1: "op_seq_len", 2: "label_probs"},
-            "op_lengths": {0: "batch_size", 1: "op_seq_len"},
-        },
-    )
+    model.export_onnx(onnx_path, cfg.data.batch_size, model_max_length)
 
     with tarfile.open(tar_path, "w:gz") as tar:
         tar.add(model_path, arcname="weights.pt")

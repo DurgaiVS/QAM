@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from tqdm import tqdm
 
-from ..constants import DATA_DIR, SUB_SPLITS
+from ..constants import DATA_DIR, MAX_SEQ_LEN, SUB_SPLITS
 from ..utils import QAMFileWriter, WorkerPool
 
 
@@ -103,7 +103,8 @@ class Source:
             base_dir=base,
             filename_stem=split,
             extension="jsonl.gz",
-            size_per_file=(1024 * 1024),
+            # size_per_file=self.size_per_file,
+            count_per_file=self.count_per_file or MAX_SEQ_LEN,
             writer_mode="b",
         ) as f, tqdm(desc=f"Writer - {symbol}:{split}", leave=False) as p_bar:
             while True:

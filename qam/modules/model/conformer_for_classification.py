@@ -20,3 +20,30 @@ class ConformerForClassification(torch.nn.Module):
         decoder = hydra.utils.instantiate(cfg.decoder)
 
         return cls(encoder, decoder)
+
+    def get_sample_input(self, batch_size, model_max_length):
+        sample_input = torch.randn(batch_size, model_max_length, self.encoder._feat_in)
+        sample_input_length = torch.zeros(batch_size, dtype=torch.int32).fill_(
+            model_max_length
+        )
+        return sample_input, sample_input_length
+
+    def export_onnx(self, save_path, batch_size, model_max_length):
+        torch.onnx.export(
+            self,
+            f=save_path,
+            args=self.get_sample_input(batch_size, model_max_length),
+            input_names=["inputs", "ip_lengths"],
+            output_names=["logits"],
+            dynamic_axes={
+                "inputs": {0: "batch_size", 1: "ip_seq_len", 2: "embed_dim"},
+                "ip_lengths": {0: "ip_seq_len"},
+                "logits": {0: "batch_size", 1: "op_seq_len", 2: "label_probs"},
+            },
+        )
+
+    def get_torchscript_model(self, batch_size, model_max_length):
+        scripted_model = torch.jit.trace(
+            self, example_inputs=self.get_sample_input(batch_size, model_max_length)
+        )
+        return scripted_model

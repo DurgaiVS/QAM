@@ -2,7 +2,7 @@ import os
 
 PAD_ID: int = -100
 
-MAX_SEQ_LEN: int = 128
+MAX_SEQ_LEN: int = 512
 # NOTE: For a 'MAX_SEQ_LEN' timestep data, the model will guess
 #       the trend direction within the next 'TREND_UPDATE_SEQ_LEN' timestep...
 TREND_UPDATE_SEQ_LEN: int = 32
@@ -13,10 +13,10 @@ SAMPLE_DIM: int = 9
 
 # NOTE: When a trend's absolute percentage diff goes above or below this threshold,
 #       it is tagged with `very ...`
-LABEL_MAX_DIFF_PERCENT: float = 0.1
+LABEL_MAX_DIFF_PERCENT: float = 0.5
 # NOTE: Minimum increment percentage to consider for `High` related labels...
 #       If below this will be moved to `Low` related, or `NoImp`
-LABEL_MIN_INCREMENT_PERCENT: float = 0.05
+LABEL_MIN_INCREMENT_PERCENT: float = 0.1
 
 DATA_DIR: str = f"{os.environ['QAM_ROOT']}/dataset"
 CONFIG_PATH: str = os.path.realpath(f"{os.environ['QAM_ROOT']}/qam/config")

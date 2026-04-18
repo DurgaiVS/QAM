@@ -11,6 +11,7 @@ def ssl_pretrain(overrides: List[str]):
 
     import hydra
     import pytorch_lightning as pl
+    from omegaconf import OmegaConf
     from pytorch_lightning.callbacks import ModelCheckpoint
 
     from ..constants import MAX_SEQ_LEN
@@ -20,6 +21,7 @@ def ssl_pretrain(overrides: List[str]):
     from .utils import get_best_model_path, wrap_up_trainer
 
     cfg = get_cfg("train", overrides, "ssl_pretraining")
+    OmegaConf.save(cfg, f"{cfg.experiment.output_dir}/_hparams.yaml")
     pl.seed_everything(cfg.experiment.seed)
 
     model_checkpoints: List[ModelCheckpoint] = []
