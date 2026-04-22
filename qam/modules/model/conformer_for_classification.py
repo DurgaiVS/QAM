@@ -21,7 +21,7 @@ class ConformerForClassification(torch.nn.Module):
 
         return cls(encoder, decoder)
 
-    def get_sample_input(self, batch_size, model_max_length):
+    def sample_input(self, batch_size, model_max_length):
         sample_input = torch.randn(batch_size, model_max_length, self.encoder._feat_in)
         sample_input_length = torch.zeros(batch_size, dtype=torch.int32).fill_(
             model_max_length
@@ -32,7 +32,7 @@ class ConformerForClassification(torch.nn.Module):
         torch.onnx.export(
             self,
             f=save_path,
-            args=self.get_sample_input(batch_size, model_max_length),
+            args=self.sample_input(batch_size, model_max_length),
             input_names=["inputs", "ip_lengths"],
             output_names=["logits"],
             dynamic_axes={
@@ -44,6 +44,6 @@ class ConformerForClassification(torch.nn.Module):
 
     def get_torchscript_model(self, batch_size, model_max_length):
         scripted_model = torch.jit.trace(
-            self, example_inputs=self.get_sample_input(batch_size, model_max_length)
+            self, example_inputs=self.sample_input(batch_size, model_max_length)
         )
         return scripted_model

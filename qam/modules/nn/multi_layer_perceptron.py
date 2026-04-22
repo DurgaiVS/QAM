@@ -6,6 +6,8 @@ class MultiLayerPerceptron(torch.nn.Module):
         self, feat_in, feat_out, hidden_dim=None, activation="ReLU", stack_size=2
     ):
         super().__init__()
+        self._feat_in = feat_in
+        self._feat_out = feat_out
 
         layers = []
         prev_dim = feat_in
