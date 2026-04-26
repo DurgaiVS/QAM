@@ -99,3 +99,10 @@ policy_head:
   num_classes: ${constants.rl_policy_heads}
   return_logits: true
   pooling_type: avg
+
+value_head:
+  _target_: nemo.collections.asr.modules.ConvASRDecoderClassification
+  feat_in: ${constants.feat_out}
+  num_classes: ${constants.rl_value_heads}
+  return_logits: true
+  pooling_type: avg

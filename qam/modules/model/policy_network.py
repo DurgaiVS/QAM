@@ -5,7 +5,7 @@ from nemo.collections.asr.modules import ConformerEncoder, ConvASRDecoderClassif
 from ..nn.multi_layer_perceptron import MultiLayerPerceptron
 
 
-class PPONetwork(torch.nn.Module):
+class PolicyNetwork(torch.nn.Module):
     def __init__(
         self,
         front_encoder: ConformerEncoder,
@@ -20,16 +20,21 @@ class PPONetwork(torch.nn.Module):
         self.policy_head = policy_head
 
     def forward(self, input_tensor, input_length, state_point):
-        enc_op, op_len, *_ = self.front_encoder(input_tensor, input_length)
+        enc_op, op_len, *_ = self.front_encoder(
+            audio_signal=input_tensor.transpose(1, 2), length=input_length
+        )
+
         mlp_op = self.mlp_head(state_point)
+        mask = (state_point != 0).any(dim=-1)
+        mlp_op *= mask.unsqueeze(-1)
 
         ####################################
         # TODO: Explore better ways to combine
         #       front encoder and MLP output.
-        enc_op = enc_op + mlp_op.sum(dim=1).unsqueeze(1)
+        enc_op = enc_op + mlp_op.sum(dim=1).unsqueeze(1).transpose(1, 2)
         ####################################
 
-        enc_op, *_ = self.back_encoder(enc_op, op_len)
+        enc_op, *_ = self.back_encoder(audio_signal=enc_op, length=op_len)
         policy_output = self.policy_head(enc_op)
 
         return policy_output
