@@ -38,8 +38,10 @@ union timepoint_t {
     char bytes[sizeof(timepoint)];
 };
 
-static const int POLICY_HEAD_SIZE = 3;
 static const int SUBSAMPLING_FACTOR = 8;
+static const int INPUT_DIM = 9;
+static const int OUTPUT_DIM = 3;
+static const int MODEL_INPUT_SIZE = 512;
 
 static const int CORE_COUNT = sysconf(_SC_NPROCESSORS_ONLN);
 static const int OP_PARALLELISM = 4;
@@ -87,7 +89,7 @@ T calculate_output_length(int input_length, int subsampling_factor) {
 template <typename T>
 void circulate_buffer(T* buffer, int size) {
     T* temp = buffer;
-    for (int i = 0; i < size - 1; ++i) {
+    for (int i = 0; i < size - 1; i++) {
         std::memcpy(temp, temp + 1, sizeof(T));
         temp++;
     }

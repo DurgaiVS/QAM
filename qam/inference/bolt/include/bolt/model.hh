@@ -7,7 +7,7 @@
 namespace bolt {
 
 class QAMModel {
-private:
+protected:
     const Ort::Env env;
     const Ort::SessionOptions session_options;
     const Ort::Session session;
@@ -16,9 +16,6 @@ public:
     QAMModel(
         const char* model_path,
         Ort::SessionOptions session_options,
-        int model_max_length,
-        int model_input_size,
-        int model_output_size,
     ) : env(ORT_LOGGING_LEVEL_WARNING, "QAM")
     , session_options(session_options)
     , session(this->env, model_path, session_options)
@@ -26,61 +23,84 @@ public:
 
     ~QAMModel();
 
-    Ort::Value infer(
+    inline void infer(
         Ort::MemoryInfo* memory_info,
-        std::vector<bolt::timepoint>& input,
-        std::vector<int>& input_shape,
-        std::vector<bolt::timepoint>& state_points,
-        std::vector<std::array<float, bolt::POLICY_HEAD_SIZE>>& output
+        std::vector<float>& input,
+        std::vector<int>& input_length,
+        std::vector<float>& state_point,
+        std::vector<float>& output,
+        int64_t* input_shape,
+        int16_t* input_length_shape,
+        int64_t* state_point_shape,
+        int64_t* output_shape,
     );
 
 } // class QAMModel
 
-QAMModel::infer(
+inline void QAMModel::infer(
     Ort::MemoryInfo* memory_info,
-    std::vector<bolt::timepoint>& input,
-    std::vector<int>& input_shape,
-    std::vector<bolt::timepoint>& state_points,
-    std::vector<std::array<float, bolt::POLICY_HEAD_SIZE>>& output
+    std::vector<float>& input,
+    std::vector<int>& input_length,
+    std::vector<float>& state_point,
+    std::vector<float>& output,
+    int64_t* input_shape,
+    int16_t* input_length_shape,
+    int64_t* state_point_shape,
+    int64_t* output_shape,
 ) {
 
-    Ort::Value input_tensor = Ort::Value::CreateTensor<bolt::timepoint>(
-        *memory_info,
-        input.data(),
-        input.size(),
-    );
+    const char* input_names[] = {"input", "input_length", "state_point"};
+    Ort::Value input_tensors[] = {
+        // "input" tensor
+        Ort::Value::CreateTensor<float>(
+            *memory_info,
+            input.data(),
+            input.size(),
+            input_shape,
+            3
+        ),
 
-    Ort::Value input_shape_tensor = Ort::Value::CreateTensor<int>(
-        *memory_info,
-        input_shape.data(),
-        input_shape.size()
-    );
+        // "input_length" tensor
+        Ort::Value::CreateTensor<int>(
+            *memory_info,
+            input_length.data(),
+            input_length.size(),
+            input_length_shape,
+            1
+        ),
 
-    Ort::Value state_point_tensor = Ort::Value::CreateTensor<bolt::timepoint>(
-        *memory_info,
-        state_points.data(),
-        state_points.size()
-    );
+        // "state_point" tensor
+        Ort::Value::CreateTensor<float>(
+            *memory_info,
+            state_point.data(),
+            state_point.size(),
+            state_point_shape,
+            3
+        )
+    };
 
-    // Run inference
-    const char* input_names[] = {"input", "ip_lengths", "state_point"};
     const char* output_names[] = {"logits"};
+    Ort::Value output_tensors[] = {
+        // "logits" tensor
+        Ort::Value::CreateTensor<float>(
+            *memory_info,
+            output.data(),
+            output.size(),
+            output_shape,
+            2
+        )
+    };
 
-    auto output_tensors = this->session.Run(
+    this->session.Run(
         Ort::RunOptions{nullptr},
         input_names,
-        (const Ort::Value*[]){&input_tensor, &input_shape_tensor, &state_point_tensor},
+        input_tensors,
         3,
         output_names,
-        1
+        output_tensors,
+        1,
     );
-
-    // Copy output to output vector
-    float* output_data = output_tensors[0].GetTensorMutableData<float>();
-    int output_size = 1;
-    for (int i = 0; i < output_tensors[0].GetTensorTypeAndShapeInfo().GetDimensionsCount(); i++) {
-        output_size *= output_tensors[0].GetTensorTypeAndShapeInfo().GetDimensions()[i];
-    }
+}
 
 }; // namespace bolt
 

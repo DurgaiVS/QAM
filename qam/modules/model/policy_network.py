@@ -52,10 +52,12 @@ class PolicyNetwork(torch.nn.Module):
         sample_input = torch.randn(
             batch_size, model_max_length, self.front_encoder._feat_in
         )
-        sample_input_length = torch.zeros(
-            batch_size, torch.randint(0, 10, (1)), dtype=torch.int32
-        ).fill_(model_max_length)
-        sample_state_point = torch.randn(batch_size, self.mlp_head._feat_in)
+        sample_input_length = torch.zeros(batch_size, dtype=torch.int32).fill_(
+            model_max_length
+        )
+        sample_state_point = torch.randn(
+            batch_size, torch.randint(1, 10, (1,)), self.mlp_head._feat_in
+        )
         return sample_input, sample_input_length, sample_state_point
 
     def export_onnx(self, save_path, batch_size, model_max_length):
@@ -63,14 +65,16 @@ class PolicyNetwork(torch.nn.Module):
             self,
             f=save_path,
             args=self.sample_input(batch_size, model_max_length),
-            input_names=["inputs", "ip_lengths", "state_point"],
+            input_names=["input", "input_length", "state_point"],
             output_names=["logits"],
             dynamic_axes={
-                "inputs": {0: "batch_size", 1: "ip_seq_len", 2: "embed_dim"},
-                "ip_lengths": {0: "ip_seq_len"},
-                "state_point": {0: "batch_size", 1: "buy_points", 2: "state_point_dim"},
+                "input": {0: "batch_size", 1: "ip_seq_len"},
+                "input_length": {0: "batch_size"},
+                "state_point": {0: "batch_size", 1: "buy_points"},
                 "logits": {0: "batch_size", 1: "label_probs"},
             },
+            verify=True,
+            optimize=False,
         )
 
     def get_torchscript_model(self, batch_size, model_max_length):

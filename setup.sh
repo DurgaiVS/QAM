@@ -20,7 +20,6 @@ cat <<EOF > ./.env
 QAM_ROOT="$(realpath "$(dirname "$0")")"
 EOF
 
-pip install poetry==2.3.4
 poetry install
 pre-commit install
 

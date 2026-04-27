@@ -33,13 +33,15 @@ class ConformerForClassification(torch.nn.Module):
             self,
             f=save_path,
             args=self.sample_input(batch_size, model_max_length),
-            input_names=["inputs", "ip_lengths"],
+            input_names=["input", "input_length"],
             output_names=["logits"],
             dynamic_axes={
-                "inputs": {0: "batch_size", 1: "ip_seq_len", 2: "embed_dim"},
-                "ip_lengths": {0: "ip_seq_len"},
-                "logits": {0: "batch_size", 1: "op_seq_len", 2: "label_probs"},
+                "input": {0: "batch_size", 1: "ip_seq_len"},
+                "input_length": {0: "batch_size"},
+                "logits": {0: "batch_size", 1: "label_probs"},
             },
+            verify=True,
+            optimize=False,
         )
 
     def get_torchscript_model(self, batch_size, model_max_length):
