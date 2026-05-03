@@ -48,17 +48,15 @@ static const int OP_PARALLELISM = 4;
 static const int INTRA_OP_NUM_THREADS = CORE_COUNT / OP_PARALLELISM;
 static const int INTER_OP_NUM_THREADS = OP_PARALLELISM;
 
-static Ort::SessionOptions session_options;
-OrtCUDAProviderOptions cuda_options;
 
-session_options.SetIntraOpNumThreads(INTRA_OP_NUM_THREADS);
-session_options.SetInterOpNumThreads(INTER_OP_NUM_THREADS);
-session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-
-bool configure_cuda_provider(int device_id = 0) {
+bool configure_cuda_provider(
+    Ort::SessionOptions* session_options,
+    OrtCUDAProviderOptions* cuda_options,
+    int device_id = 0
+) {
     try {
-        cuda_options.device_id = device_id;
-        session_options.AppendExecutionProvider_CUDA(cuda_options);
+        cuda_options->device_id = device_id;
+        session_options->AppendExecutionProvider_CUDA(*cuda_options);
         return true;
     } catch (const Ort::Exception& e) {
         std::cerr << "Failed to configure CUDA provider: " << e.what() << std::endl;
@@ -104,16 +102,16 @@ Ort::MemoryInfo create_memory_info_cpu() {
     return Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
 }
 
-/**
- * Creates an Ort::MemoryInfo object for CUDA memory.
- *
- * @param device_id The ID of the CUDA device to use (default is 0).
- *
- * @return An Ort::MemoryInfo object configured for CUDA memory.
- */
-Ort::MemoryInfo create_memory_info_cuda(int device_id = 0) {
-    return Ort::MemoryInfo::CreateCuda(device_id);
-}
+// /**
+//  * Creates an Ort::MemoryInfo object for CUDA memory.
+//  *
+//  * @param device_id The ID of the CUDA device to use (default is 0).
+//  *
+//  * @return An Ort::MemoryInfo object configured for CUDA memory.
+//  */
+// Ort::MemoryInfo create_memory_info_cuda(int device_id = 0) {
+//     return Ort::MemoryInfo::CreateCuda(device_id);
+// }
 
 }; // namespace bolt
 

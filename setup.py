@@ -37,48 +37,60 @@ class CMakeBuild(build_ext):
         # any python sources to bundle, the dirs will be missing
         build_temp = Path(self.build_temp)
         build_temp.mkdir(parents=True, exist_ok=True)
-        extdir = Path(self.get_ext_fullpath(ext.name))
-        extdir.mkdir(parents=True, exist_ok=True)
 
-        fst_v = "openfst-1.8.3"
-        fst_url = f"https://www.openfst.org/twiki/pub/FST/FstDownload/{fst_v}.tar.gz"
-        tmp_dir = TemporaryDirectory()
-        res = requests.get(fst_url)
-        with tarfile.open(fileobj=BytesIO(res.content)) as tar:
-            tar.extractall(tmp_dir.name)
-        del res
+        boost_version = "1.91.0"
+        onnxruntime_version = "1.25.0"
 
-        # example of cmake args
-        config = "Debug" if self.debug else "Release"
-        cmake_args = [
-            "-DLIBRARY_OUTPUT_DIRECTORY=" + src_dir,
-            "-DCMAKE_BUILD_TYPE=" + config,
-            "-DPYTHON_INCLUDE_DIR=" + str(get_paths()["include"]),
-            "-DPYTHON_EXECUTABLE=" + str(sys.executable),
-            "-DCMAKE_INSTALL_PREFIX=" + str(build_temp),
-            "-DFST_DIR=" + str(Path(tmp_dir.name) / fst_v),
-        ]
+        boost_url = f"https://archives.boost.io/release/{boost_version}/source/boost_{boost_version.replace('.', '_')}.tar.gz"
+        onnxruntime_url = f"https://github.com/microsoft/onnxruntime/releases/download/v{onnxruntime_version}/onnxruntime-linux-x64-{onnxruntime_version}.tgz"
 
-        # example of build args
-        build_args = ["--config", config, "--", "-j" + str(min(os.cpu_count(), 32))]
+        with TemporaryDirectory() as tmp_dir:
 
-        subprocess.run(
-            ["cmake", str(ext.sourcedir), *cmake_args], cwd=build_temp, check=True
-        )
-        subprocess.run(
-            ["cmake", "--build", ".", "--target", "install", *build_args],
-            cwd=build_temp,
-            check=True,
-        )
+            for url in [boost_url, onnxruntime_url]:
+                res = requests.get(url)
+                with tarfile.open(fileobj=BytesIO(res.content)) as tar:
+                    tar.extractall(tmp_dir)
+                del res
 
-        tmp_dir.cleanup()
+            # example of cmake args
+            config = "Debug" if self.debug else "Release"
+            cmake_args = [
+                "-DLIBRARY_OUTPUT_DIRECTORY=" + src_dir,
+                "-DCMAKE_BUILD_TYPE=" + config,
+                "-DPYTHON_INCLUDE_DIR=" + str(get_paths()["include"]),
+                "-DPYTHON_EXECUTABLE=" + str(sys.executable),
+                "-DCMAKE_INSTALL_PREFIX=" + str(build_temp),
+                "-DBOOST_DIR="
+                + str(
+                    os.path.join(tmp_dir, f"boost_{boost_version.replace('.', '_')}")
+                ),
+                "-DONNXRUNTIME_DIR="
+                + str(
+                    os.path.join(
+                        tmp_dir,
+                        f"onnxruntime-linux-x64-{onnxruntime_version}",
+                    )
+                ),
+            ]
+
+            # example of build args
+            build_args = ["--config", config, "--", "-j" + str(min(os.cpu_count(), 16))]
+
+            subprocess.run(
+                ["cmake", str(ext.sourcedir), *cmake_args], cwd=build_temp, check=True
+            )
+            subprocess.run(
+                ["cmake", "--build", ".", "--target", "install", *build_args],
+                cwd=build_temp,
+                check=True,
+            )
 
 
 setup(
     name="qam",
     version="0.1",
     packages=find_packages(),
-    ext_modules=[CMakeExtension("_zctc", Path(__file__).parent)],
+    ext_modules=[CMakeExtension("bolt", Path(__file__).parent)],
     cmdclass={
         "build_ext": CMakeBuild,
     },

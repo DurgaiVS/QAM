@@ -9,15 +9,13 @@ namespace bolt {
 class QAMModel {
 protected:
     const Ort::Env env;
-    const Ort::SessionOptions session_options;
     const Ort::Session session;
 
 public:
     QAMModel(
         const char* model_path,
-        Ort::SessionOptions session_options,
+        Ort::SessionOptions session_options
     ) : env(ORT_LOGGING_LEVEL_WARNING, "QAM")
-    , session_options(session_options)
     , session(this->env, model_path, session_options)
     { };
 
@@ -29,25 +27,25 @@ public:
         std::vector<int>& input_length,
         std::vector<float>& state_point,
         std::vector<float>& output,
-        int64_t* input_shape,
-        int16_t* input_length_shape,
-        int64_t* state_point_shape,
-        int64_t* output_shape,
-    );
+        const int64_t* input_shape,
+        const int64_t* input_length_shape,
+        const int64_t* state_point_shape,
+        const int64_t* output_shape
+    ) const;
 
-} // class QAMModel
+}; // class QAMModel
 
-inline void QAMModel::infer(
+void QAMModel::infer(
     Ort::MemoryInfo* memory_info,
     std::vector<float>& input,
     std::vector<int>& input_length,
     std::vector<float>& state_point,
     std::vector<float>& output,
-    int64_t* input_shape,
-    int16_t* input_length_shape,
-    int64_t* state_point_shape,
-    int64_t* output_shape,
-) {
+    const int64_t* input_shape,
+    const int64_t* input_length_shape,
+    const int64_t* state_point_shape,
+    const int64_t* output_shape
+) const {
 
     const char* input_names[] = {"input", "input_length", "state_point"};
     Ort::Value input_tensors[] = {
@@ -98,7 +96,7 @@ inline void QAMModel::infer(
         3,
         output_names,
         output_tensors,
-        1,
+        1
     );
 }
 

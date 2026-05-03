@@ -13,7 +13,14 @@ namespace bolt {
 void run_inference() {
     int batch_size = 1, state_point_count = 3;
 
-    bolt::QAMModel model("", bolt::session_options);
+    Ort::SessionOptions session_options;
+
+    session_options.SetIntraOpNumThreads(bolt::INTRA_OP_NUM_THREADS);
+    session_options.SetInterOpNumThreads(bolt::INTER_OP_NUM_THREADS);
+    session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+
+    bolt::QAMModel model("/Users/durga-17532/DVS/ML/qam/policy_network.onnx", session_options);
     Ort::MemoryInfo memory_info = bolt::create_memory_info_cpu();
 
     // Example input data
@@ -23,11 +30,11 @@ void run_inference() {
 
     std::vector<float> output(batch_size * bolt::OUTPUT_DIM, 0.0f);
 
-    int64_t input_shape[] = {batch_size, bolt::MODEL_INPUT_SIZE, bolt::INPUT_DIM};
-    int16_t input_length_shape[] = {batch_size};
-    int64_t state_point_shape[] = {batch_size, state_point_count, bolt::INPUT_DIM};
+    const int64_t input_shape[] = {batch_size, bolt::MODEL_INPUT_SIZE, bolt::INPUT_DIM};
+    const int64_t input_length_shape[] = {batch_size};
+    const int64_t state_point_shape[] = {batch_size, state_point_count, bolt::INPUT_DIM};
 
-    int64_t output_shape[] = {batch_size, bolt::OUTPUT_DIM};
+    const int64_t output_shape[] = {batch_size, bolt::OUTPUT_DIM};
 
     model.infer(
         &memory_info,
