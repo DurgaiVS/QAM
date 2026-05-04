@@ -20,7 +20,7 @@ void run_inference() {
     session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
 
-    bolt::QAMModel model("/Users/durga-17532/DVS/ML/qam/policy_network.onnx", session_options);
+    bolt::QAMModel model("", session_options);
     Ort::MemoryInfo memory_info = bolt::create_memory_info_cpu();
 
     // Example input data
